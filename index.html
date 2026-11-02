@@ -12,12 +12,13 @@ button{font-size:22px;padding:14px 18px;border:0;border-radius:10px;background:#
 .big{font-size:40px;font-weight:900}.dim{color:#aaa;font-size:16px}
 .ok{background:#0a5;padding:10px;border-radius:10px}.bad{background:#b00;padding:10px;border-radius:10px;font-weight:700}
 .ph{color:#ffd400;font-size:14px;font-weight:700}label.t{display:block;padding:10px;font-size:20px}label.t input{width:28px;height:28px;vertical-align:middle}
+.cam{font-size:28px;padding:8px 14px;background:#444;border-radius:10px;display:flex;align-items:center;margin:4px 0;cursor:pointer}
 footer{color:#888;font-size:14px;text-align:center;padding:16px}
 </style></head><body>
 <header>TWS Wheel Tracking · <span id="sn"></span> <small>(DRAFT)</small></header><main id="m"></main>
 <footer><select id="st" aria-label="Station"></select><br>Every tick is saved with your name and time.<br>
 <span class="ph">Results go to the Office view. All phones share one job list (needs signal).</span></footer>
-<script src="logic.js"></script>
+<script src="logic.js"></script><script src="camera.js" defer></script>
 <script>
 /* ===================== CONFIG ===================== */
 // Shared mode: every phone and the Office read/write ONE job list on the TWS Cloudflare Worker (rules enforced there).
@@ -47,7 +48,7 @@ async function act(a){a.dev=dev;let r;
 const show=r=>{if(r&&r.msg)msg=`<p class="${r.ok?'ok':'bad'}">${esc(r.msg)}</p>`;draw();};
 function draw(){const s=stn(),m=document.getElementById('m');document.getElementById('sn').textContent=s.name;
  let h='<div id="net">'+NET+'</div>'+msg;msg='';
- if(s.id=='rec'){h+=`<div class="card"><b>New job</b><form id="rf">${[['part','Part number (job code)'],['job','Job number'],['cust','Customer name'],['n','Number of wheels'],['tyre','Tyre size'],['make','Car make'],['reg','Reg (optional)']].map(([k,p])=>`<input name="${k}" placeholder="${p}" ${k=='reg'?'':'required'} ${k=='n'?'type=number min=1 max=4':''}>`).join('')}
+ if(s.id=='rec'){h+=`<div class="card"><b>New job</b><form id="rf">${[['part','Part number (job code)'],['job','Job number'],['cust','Customer name'],['n','Number of wheels'],['tyre','Tyre size'],['make','Car make'],['reg','Reg (optional)']].map(([k,p])=>{const i=`<input name="${k}" ${k=='part'?'id="rpart"':''} placeholder="${p}" ${k=='reg'?'':'required'} ${k=='n'?'type=number min=1 max=4':''}>`;return k=='part'?`<div class="row">${i}<label class="cam" aria-label="Take photo of part number">&#128247;<input type="file" accept="image/*" capture="environment" data-cam="rpart" hidden></label></div><div id="camst" class="dim"></div>`:i;}).join('')}
  <select name="finish"><option>Powder coat</option><option>Diamond cut</option></select>
  <select name="staying"><option value="">Car staying?</option><option>Yes</option><option>No</option></select>
  <select name="tyreinc"><option value="">Tyre included?</option><option>Yes</option><option>No</option></select>
@@ -60,7 +61,7 @@ function draw(){const s=stn(),m=document.getElementById('m');document.getElement
   if(s.batch){const b=DB.jobs.filter(j=>j.inBatch);h+=`<div class="card"><b>Loading batch</b> (${wheels2(b)}/${OVEN_MAX} wheels)<br>${b.map(j=>esc(j.part)).join(', ')||'<span class="dim">empty</span>'}<br>${b.length?'<button id="go">Start batch (records one time)</button>':''}</div>`;}
   if(s.id=='acid')h+=`<p class="dim">In acid now: ${wheels('acidout')}/${ACID_MAX} wheels</p>`;
   h+=`<div class="card"><div class="dim">NEXT DUE</div>${d?`<div class="big">${esc(d.part)}</div><div class="dim">${esc(d.cust)} · ${d.n} wheels · ${esc(d.finish)}${s.id=='fitm'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
-  <form id="sf" class="row"><input id="code" placeholder="Scan / type part number" autocomplete="off"><button>Scan</button></form>`;
+  <form id="sf" class="row"><input id="code" placeholder="Scan / type part number" autocomplete="off"><label class="cam" aria-label="Take photo of part number">&#128247;<input type="file" accept="image/*" capture="environment" data-cam="code" hidden></label><button>Scan</button></form><div id="camst" class="dim"></div>`;
   const cur=CUR&&CUR.st==s.id&&DB.jobs.find(j=>j.part==CUR.part&&!j.done&&step(j)==s.id);
   if(cur&&!s.batch){h+=`<form id="cf" class="card"><b>${esc(cur.part)} checklist</b>${(s.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(s.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" required inputmode="decimal">`).join('')}
   <input name="who" placeholder="Your name" required value="${esc(localStorage.who||'')}"><button>Done</button></form>`;}
@@ -69,10 +70,14 @@ function draw(){const s=stn(),m=document.getElementById('m');document.getElement
 const wheels2=b=>b.reduce((a,j)=>a+ +j.n,0);
 function bind(){const q=id=>document.getElementById(id),s=stn();
  q('rf')&&(q('rf').onsubmit=async e=>{e.preventDefault();const r=await act({type:'book',job:Object.fromEntries(new FormData(e.target))});if(r.ok)e.target.reset();show(r);});
- q('sf')&&(q('sf').onsubmit=async e=>{e.preventDefault();const r=await act({type:'scan',st:s.id,code:q('code').value.trim()});if(r.open)setCur({st:s.id,part:r.open});show(r);});
+ q('sf')&&(q('sf').onsubmit=async e=>{e.preventDefault();if(!q('code').value.trim())return;const r=await act({type:'scan',st:s.id,code:q('code').value.trim()});if(r.open)setCur({st:s.id,part:r.open});show(r);});
  q('cf')&&(q('cf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim();localStorage.who=who;
   const r=await act({type:'tick',st:s.id,part:CUR.part,who,checks:(s.checks||[]).map((c,i)=>!!f.get('c'+i)),nums:(s.nums||[]).map((n,i)=>f.get('n'+i))});
   if(r.ok||!r.open)setCur(null);show(r);});
+ document.querySelectorAll('[data-cam]').forEach(f=>f.onchange=async()=>{const file=f.files[0];f.value='';if(!file)return;const st=t=>q('camst')&&(q('camst').textContent=t);
+  try{if(!window.readPartFromPhoto)throw new Error('camera reader not loaded yet');const r=await readPartFromPhoto(file,st);const box=q(f.dataset.cam);
+   if(r.code){box.value=r.code.trim();box.focus();st('Read "'+r.code+'" from the '+r.how+'. CHECK it matches the wheel, fix it if needed, then tap '+(f.dataset.cam=='code'?'Scan':'Book in')+'.');}
+   else st('Could not read a part number - type it in, or try another photo closer up with good light.');}catch(e){st('Photo reader failed: '+e.message+' - type it in.');}});
  q('go')&&(q('go').onclick=async()=>show(await act({type:'batch',st:'oven'})));
  document.querySelectorAll('[data-hold]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.hold];show(await act({type:'hold',st:'office',part:j.part,hold:!j.hold}));});
  q('exj')&&(q('exj').onclick=()=>dl('tws-data.json',JSON.stringify(DB,null,1)));

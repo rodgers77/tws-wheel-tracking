@@ -40,7 +40,8 @@ function apply(DB, a, t){
   if(DB.jobs.some(x=>x.part==j.part&&!x.done))return {ok:false,msg:'Part number already in workshop - mark triangle/square variant.'};
   Object.assign(j,{booked:t,pos:0,ticks:[]});DB.jobs.push(j);log(j.part,'rec','booked in');return {ok:true,msg:'Booked in '+j.part}; }
  case 'scan': { if(!s||!route({}).concat('cut').includes(s.id))return {ok:false,msg:'Not a scanning station.'};
-  const code=str(a.code), d=due(DB,s.id,dev);
+  const code=str(a.code); if(!code)return {ok:false,ignored:true}; // empty scan: no alert, no log
+  const d=due(DB,s.id,dev);
   if(!d||d.part!=code){alertOffice(`Wrong scan at ${s.name}: ${code}${d?' (expected '+d.part+')':''}`);
    return {ok:false,msg:`REJECTED: ${code} is not the next wheel due here${d?' (next is '+d.part+')':''}. Office notified.`};}
   if(s.id=='acid'&&wheels(DB,'acidout')+ +d.n>ACID_MAX)return {ok:false,msg:`Acid full: max ${ACID_MAX} wheels.`};
