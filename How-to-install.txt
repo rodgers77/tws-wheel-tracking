@@ -1,0 +1,44 @@
+TWS WHEEL TRACKING - how to put it on a phone
+=============================================
+App address: https://rodgers77.github.io/tws-wheel-tracking/
+Office screen: https://rodgers77.github.io/tws-wheel-tracking/office.html
+Note: this is a public web page, so anyone with the link can open it.
+
+INSTALL ON ANDROID (Chrome)
+1. Open Chrome and go to the app address above.
+2. Tap the 3 dots (top right) > Install app (or Add to Home screen).
+3. Tap Install / Add. A "TWS Wheels" icon appears on the home screen.
+4. Always open the app from that icon.
+
+INSTALL ON iPHONE (Safari - must be Safari, not Chrome)
+1. Open Safari and go to the app address above.
+2. Tap the Share button (square with an arrow pointing up).
+3. Scroll down and tap Add to Home Screen, then tap Add.
+4. Always open the app from the "TWS Wheels" icon.
+
+PICK THE STATION FOR THIS PHONE
+1. Open the app and scroll to the bottom.
+2. Choose the station from the dropdown (e.g. "4 Strip-down", "8 Oven", "13 Fit to car").
+3. The phone remembers that station every time the app is opened, so it stays set
+   for that bench. Only change it if the phone moves to a different station.
+   (There is no password lock yet - ask staff not to change the dropdown.)
+
+THE OFFICE
+The office uses office.html (the Office screen link above), or any phone set to
+station "3 Office / Hold / Status". It shows where every job is, all scans,
+wrong-scan alerts, completed-job alerts, Hold/Release, and Export (CSV/JSON).
+
+USING IT
+Each tick and "Done" is saved with the person's name and the time. Scans in the
+wrong order are rejected and flagged to the office screen.
+
+UPDATES
+When the app is changed, phones pick up the new version next time they open it
+while online. If it looks out of date, close the app fully and open it again.
+
+*** WARNING - EACH PHONE KEEPS ITS OWN DATA FOR NOW ***
+Scans are saved only on the phone they were made on. The office screen only
+shows scans made on THAT phone - it cannot see what other phones have scanned yet.
+Sharing between phones needs a small online service setting up (not done yet).
+Until then, use Export on each phone to collect the records. Clearing the browser
+data or deleting the app will wipe that phone's records, so export them first.
