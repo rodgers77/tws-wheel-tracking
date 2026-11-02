@@ -16,51 +16,44 @@ footer{color:#888;font-size:14px;text-align:center;padding:16px}
 </style></head><body>
 <header>TWS Wheel Tracking · <span id="sn"></span> <small>(DRAFT)</small></header><main id="m"></main>
 <footer><select id="st" aria-label="Station"></select><br>Every tick is saved with your name and time.<br>
-<span class="ph">Results go to the Office view. Until a shared link is set up, each phone keeps its own copy - use Export.</span></footer>
+<span class="ph">Results go to the Office view. All phones share one job list (needs signal).</span></footer>
+<script src="logic.js"></script>
 <script>
 /* ===================== CONFIG ===================== */
-// Q1 (Ian, 2 Nov): scan results report to the OFFICE. Every scan/tick/alert goes into the log shown on
-// station "3 Office". Phones keep their own copy (localStorage) + Export, because a shared backend is not set up.
-// Same pattern as Box Lookup LOG_URL: paste a relay URL (e.g. a Cloudflare Worker like box-lookup/relay) here and
-// each log record is POSTed to it. NEVER put a token here. Blank = this phone only.
-const REPORT_URL = '';
-// Q2 (Ian, 2 Nov): fitting is TWO steps: "Tyre fit & balance" (station 11) then "Fit to car" (station 13).
-const ACID_MAX = 8, OVEN_MAX = 6;
+// Shared mode: every phone and the Office read/write ONE job list on the TWS Cloudflare Worker (rules enforced there).
+// Blank = this phone only (old local mode, use Export). Each phone is asked once for the workshop PIN.
+const API = 'https://tws-wheel-tracking-api.tws-workshop.workers.dev';
 /* ================================================================================ */
-const S = [
- {id:'rec',name:'1 Reception'},
- {id:'wm',name:'2 Wheel machine (book-in)',checks:[]},
- {id:'office',name:'3 Office / Hold / Status'},
- {id:'strip',name:'4 Strip-down',checks:['Tyre off and stored','TPMS sensor kept with tyre','Valve out','Weights out','Buckle check']},
- {id:'acid',name:'5 Acid room - in',checks:['No inserts','No weights','No valves']},
- {id:'acidout',name:'6 Out of acid',checks:['Dipped, free of residue','Rinsed','Laid by prep']},
- {id:'prep',name:'7 Prep',checks:['Part number approved','Hub taped','Imperfections sanded']},
- {id:'oven',name:'8 Oven',batch:true},
- {id:'cut',name:'9 Diamond cut',checks:['Cut done']},
- {id:'cool',name:'10 After lacquer - cooling',checks:['Out to cool by wheel machine']},
- {id:'fitm',name:'11 Tyre fit & balance',checks:['Tyre fitted','TPMS sensor fitted','Valves fitted','Hub sanded, balanced (no counterbalancing)'],nums:['PSI before balancing']},
- {id:'ready',name:'12 Ready',checks:['Ready for the wheel']},
- {id:'fit',name:'13 Fit to car',checks:['Fitted to car, confirmed done'],nums:['PSI','Torque']}];
-const route = j => ['wm','strip','acid','acidout','prep','oven', ...(j.finish=='Diamond cut'?['cut','oven']:[]),'cool','fitm','ready','fit'];
-let DB = JSON.parse(localStorage.tws||'{"jobs":[],"log":[],"alerts":[]}');
-const save = ()=>localStorage.tws=JSON.stringify(DB), now=()=>new Date().toISOString();
+const {S,route,step,due:due3,ACID_MAX,OVEN_MAX}=TWS, sum=TWS.sum;
+let DB = API?TWS.empty():JSON.parse(localStorage.tws||'{"jobs":[],"log":[],"alerts":[]}');
+const save = ()=>{if(!API)localStorage.tws=JSON.stringify(DB);};
+const dev = localStorage.dev||(localStorage.dev=Math.random().toString(36).slice(2,12));
 const stn = ()=>S.find(s=>s.id==(location.hash.slice(1)||localStorage.station||'rec'))||S[0];
-const step = j=>route(j)[j.pos], wheels=id=>DB.jobs.filter(j=>step(j)==id).reduce((a,j)=>a+ +j.n,0);
-const log = (job,station,what,name='')=>{const r={t:now(),job,station,what,name};DB.log.push(r);
- if(REPORT_URL)try{fetch(REPORT_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify(r)});}catch(x){}};
-const alertOffice = msg=>{DB.alerts.push({t:now(),msg});log('',stn().id,'ALERT: '+msg);};
-const due = id=>DB.jobs.filter(j=>!j.done&&!j.hold&&step(j)==id&&!j.inBatch).sort((a,b)=>a.booked<b.booked?-1:1)[0];
+const wheels=id=>TWS.wheels(DB,id), due=id=>due3(DB,id,dev);
 const esc = s=>String(s).replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
-let msg='';
+let msg='', CUR=JSON.parse(localStorage.cur||'null');
+const setCur=c=>{CUR=c;localStorage.cur=JSON.stringify(c);};
+async function call(path,opt={}){if(!localStorage.pin)localStorage.pin=prompt('Workshop PIN')||'';
+ const r=await fetch(API+path,{...opt,headers:{'Content-Type':'application/json','X-PIN':localStorage.pin}});
+ if(r.status==401){localStorage.pin='';throw new Error('Wrong workshop PIN - reload and try again.');}
+ if(!r.ok)throw new Error('Server error '+r.status);return r.json();}
+async function pull(){if(!API)return;try{DB=(await call('/state')).db;setOnline(1);}catch(e){setOnline(0,e.message);}}
+let NET='';function setOnline(ok,why){NET=ok?'':'<p class="bad">Not connected: '+esc(why||'')+' - nothing is being saved. Check signal.</p>';const e=document.getElementById('net');if(e)e.innerHTML=NET;}
+// Every change goes through here: on the server when API is set, otherwise on this phone.
+async function act(a){a.dev=dev;let r;
+ if(API){try{const d=await call('/action',{method:'POST',body:JSON.stringify(a)});DB=d.db;r=d.r;setOnline(1);}catch(e){setOnline(0,e.message);return {ok:false,msg:'Not saved: '+e.message};}}
+ else{r=TWS.apply(DB,a);save();}
+ return r;}
+const show=r=>{if(r&&r.msg)msg=`<p class="${r.ok?'ok':'bad'}">${esc(r.msg)}</p>`;draw();};
 function draw(){const s=stn(),m=document.getElementById('m');document.getElementById('sn').textContent=s.name;
- let h=msg;msg='';
+ let h='<div id="net">'+NET+'</div>'+msg;msg='';
  if(s.id=='rec'){h+=`<div class="card"><b>New job</b><form id="rf">${[['part','Part number (job code)'],['job','Job number'],['cust','Customer name'],['n','Number of wheels'],['tyre','Tyre size'],['make','Car make'],['reg','Reg (optional)']].map(([k,p])=>`<input name="${k}" placeholder="${p}" ${k=='reg'?'':'required'} ${k=='n'?'type=number min=1 max=4':''}>`).join('')}
  <select name="finish"><option>Powder coat</option><option>Diamond cut</option></select>
  <select name="staying"><option value="">Car staying?</option><option>Yes</option><option>No</option></select>
  <select name="tyreinc"><option value="">Tyre included?</option><option>Yes</option><option>No</option></select>
  <button>Book in</button></form></div>`;}
  else if(s.id=='office'){h+=`<div class="card"><b>Office alerts</b>${DB.alerts.slice().reverse().map(a=>`<div class="${/complete/i.test(a.msg)?'ok':'bad'}" style="margin:6px 0">${esc(a.msg)} <span class="dim">${a.t.slice(11,16)}</span></div>`).join('')||'<p class="dim">None</p>'}</div>
- <div class="card"><b>Where every job is</b> <span class="dim">(this phone's data until shared link is set up)</span>${DB.jobs.map((j,i)=>`<div style="margin:8px 0">${esc(j.part)} · ${esc(j.cust)} · ${j.n} wheels<br><span class="dim">${j.done?'COMPLETE':(S.find(x=>x.id==step(j)).name)}${j.hold?' · ON HOLD':''}</span> ${j.done?'':`<button data-hold="${i}">${j.hold?'Release':'Hold'}</button>`}</div>`).join('')}</div>
+ <div class="card"><b>Where every job is</b> <span class="dim">(${API?'all phones, updates every 5 s':'this phone only'})</span>${DB.jobs.map((j,i)=>`<div style="margin:8px 0">${esc(j.part)} · ${esc(j.cust)} · ${j.n} wheels<br><span class="dim">${j.done?'COMPLETE':(S.find(x=>x.id==step(j)).name)}${j.hold?' · ON HOLD':''}</span> ${j.done?'':`<button data-hold="${i}">${j.hold?'Release':'Hold'}</button>`}</div>`).join('')}</div>
  <div class="card"><b>All scans</b>${DB.log.slice(-50).reverse().map(r=>`<div class="dim">${r.t.slice(11,16)} ${esc(r.station)} ${esc(r.job)} ${esc(r.what)} ${esc(r.name)}</div>`).join('')}</div>
  <button id="exj">Export JSON</button> <button id="exc">Export CSV</button>`;}
  else{const d=due(s.id);
@@ -68,39 +61,28 @@ function draw(){const s=stn(),m=document.getElementById('m');document.getElement
   if(s.id=='acid')h+=`<p class="dim">In acid now: ${wheels('acidout')}/${ACID_MAX} wheels</p>`;
   h+=`<div class="card"><div class="dim">NEXT DUE</div>${d?`<div class="big">${esc(d.part)}</div><div class="dim">${esc(d.cust)} · ${d.n} wheels · ${esc(d.finish)}${s.id=='fitm'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
   <form id="sf" class="row"><input id="code" placeholder="Scan / type part number" autocomplete="off"><button>Scan</button></form>`;
-  const cur=DB.cur&&DB.cur.st==s.id&&DB.jobs.find(j=>j.part==DB.cur.part);
+  const cur=CUR&&CUR.st==s.id&&DB.jobs.find(j=>j.part==CUR.part&&!j.done&&step(j)==s.id);
   if(cur&&!s.batch){h+=`<form id="cf" class="card"><b>${esc(cur.part)} checklist</b>${(s.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(s.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" required inputmode="decimal">`).join('')}
   <input name="who" placeholder="Your name" required value="${esc(localStorage.who||'')}"><button>Done</button></form>`;}
  }
  m.innerHTML=h;bind();}
 const wheels2=b=>b.reduce((a,j)=>a+ +j.n,0);
 function bind(){const q=id=>document.getElementById(id),s=stn();
- q('rf')&&(q('rf').onsubmit=e=>{e.preventDefault();const j=Object.fromEntries(new FormData(e.target));
-  if(DB.jobs.some(x=>x.part==j.part&&!x.done)){msg='<p class="bad">Part number already in workshop - mark triangle/square variant.</p>';return draw();}
-  Object.assign(j,{booked:now(),pos:0,ticks:[]});DB.jobs.push(j);log(j.part,'rec','booked in');save();msg='<p class="ok">Booked in '+esc(j.part)+'</p>';draw();});
- q('sf')&&(q('sf').onsubmit=e=>{e.preventDefault();scan(q('code').value.trim());});
- q('cf')&&(q('cf').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim(),j=DB.jobs.find(x=>x.part==DB.cur.part);
-  if(!(s.checks||[]).every((c,i)=>f.get('c'+i))){msg='<p class="bad">Tick every item first.</p>';return draw();}
-  localStorage.who=who;(s.checks||[]).forEach(c=>j.ticks.push({st:s.id,item:c,name:who,t:now()}));(s.nums||[]).forEach((n,i)=>j.ticks.push({st:s.id,item:n,value:f.get('n'+i),name:who,t:now()}));
-  log(j.part,s.id,'checklist done',who);advance(j,s);DB.cur=null;save();draw();});
- q('go')&&(q('go').onclick=()=>{const t=now();DB.jobs.filter(j=>j.inBatch).forEach(j=>{j.inBatch=0;j.ticks.push({st:'oven',item:'batch time',value:t});log(j.part,'oven','batch started '+t);j.pos++;});save();draw();});
- document.querySelectorAll('[data-hold]').forEach(b=>b.onclick=()=>{const j=DB.jobs[b.dataset.hold];j.hold=!j.hold;log(j.part,'office',j.hold?'HOLD':'released');save();draw();});
+ q('rf')&&(q('rf').onsubmit=async e=>{e.preventDefault();const r=await act({type:'book',job:Object.fromEntries(new FormData(e.target))});if(r.ok)e.target.reset();show(r);});
+ q('sf')&&(q('sf').onsubmit=async e=>{e.preventDefault();const r=await act({type:'scan',st:s.id,code:q('code').value.trim()});if(r.open)setCur({st:s.id,part:r.open});show(r);});
+ q('cf')&&(q('cf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim();localStorage.who=who;
+  const r=await act({type:'tick',st:s.id,part:CUR.part,who,checks:(s.checks||[]).map((c,i)=>!!f.get('c'+i)),nums:(s.nums||[]).map((n,i)=>f.get('n'+i))});
+  if(r.ok||!r.open)setCur(null);show(r);});
+ q('go')&&(q('go').onclick=async()=>show(await act({type:'batch',st:'oven'})));
+ document.querySelectorAll('[data-hold]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.hold];show(await act({type:'hold',st:'office',part:j.part,hold:!j.hold}));});
  q('exj')&&(q('exj').onclick=()=>dl('tws-data.json',JSON.stringify(DB,null,1)));
  q('exc')&&(q('exc').onclick=()=>dl('tws-log.csv','time,job,station,what,name\n'+DB.log.map(r=>[r.t,r.job,r.station,r.what,r.name].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')));}
-function scan(code){const s=stn(),d=due(s.id);
- if(!d||d.part!=code){msg=`<p class="bad">REJECTED: ${esc(code)} is not the next wheel due here${d?' (next is '+esc(d.part)+')':''}. Office notified.</p>`;
-  alertOffice(`Wrong scan at ${s.name}: ${code}${d?' (expected '+d.part+')':''}`);save();return draw();}
- if(s.id=='acid'&&wheels('acidout')+ +d.n>ACID_MAX){msg=`<p class="bad">Acid full: max ${ACID_MAX} wheels.</p>`;return draw();}
- if(s.batch){const b=DB.jobs.filter(j=>j.inBatch);if(wheels2(b)+ +d.n>OVEN_MAX){msg=`<p class="bad">Oven batch full: max ${OVEN_MAX} wheels.</p>`;return draw();}
-  d.inBatch=1;log(d.part,'oven','added to batch');save();return draw();}
- log(d.part,s.id,'scanned');DB.cur={st:s.id,part:d.part};
- if(!(s.checks||[]).length&&!(s.nums||[]).length){advance(d,s);DB.cur=null;msg='<p class="ok">'+esc(d.part)+' booked in at wheel machine</p>';}
- save();draw();}
-function advance(j,s){j.pos++;if(j.pos>=route(j).length){j.done=1;alertOffice(`Job complete: ${j.part} (${j.cust}, job ${j.job})`);}}
 function dl(n,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t]));a.download=n;a.click();}
 const sel=document.getElementById('st');sel.innerHTML=S.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');sel.value=stn().id;
-sel.onchange=()=>{localStorage.station=sel.value;location.hash='';draw();};
-addEventListener('storage',e=>{if(e.key=='tws'){DB=JSON.parse(e.newValue);draw();}});setInterval(()=>{DB=JSON.parse(localStorage.tws||JSON.stringify(DB));if(!document.getElementById('cf')&&!document.getElementById('rf')&&(!document.activeElement||document.activeElement==document.body))draw();},5000);
-addEventListener('hashchange',()=>{sel.value=stn().id;draw();});
-draw();if('serviceWorker'in navigator&&location.protocol=='https:')navigator.serviceWorker.register('sw.js');
+sel.onchange=async()=>{localStorage.station=sel.value;location.hash='';await pull();draw();};
+const idle=()=>!document.getElementById('cf')&&!document.getElementById('rf')&&(!document.activeElement||document.activeElement==document.body);
+if(!API)addEventListener('storage',e=>{if(e.key=='tws'){DB=JSON.parse(e.newValue);draw();}});
+setInterval(async()=>{if(API)await pull();else DB=JSON.parse(localStorage.tws||JSON.stringify(DB));if(idle())draw();},5000);
+addEventListener('hashchange',async()=>{sel.value=stn().id;await pull();draw();});
+pull().then(draw);if('serviceWorker'in navigator&&location.protocol=='https:')navigator.serviceWorker.register('sw.js');
 </script></body></html>

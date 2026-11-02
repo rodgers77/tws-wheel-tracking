@@ -1,6 +1,6 @@
 # TWS Wheel Tracking
 Open index.html (pick the station in the dropdown at the bottom; each phone remembers its station). office.html opens the Office view.
-Config block is at the top of the <script> in index.html: REPORT_URL (blank = this phone only), ACID_MAX=8, OVEN_MAX=6.
-Ian's answers (2 Nov): fitting is two steps = station 11 "Tyre fit & balance" + station 13 "Fit to car" (still 13 stations).
-Results report to the Office view. Each phone only stores its own data until a shared backend/relay is set up (like box-lookup/relay) and its URL goes in REPORT_URL. Use Export JSON/CSV on the Office screen.
-Tests: serve this folder on :8765, then `node test-phone.js` (needs playwright-core + Chrome). Screenshots in screenshots/.
+All phones share one job list held by the TWS Cloudflare Worker (const API at the top of the script in index.html).
+The rules (strict order, acid max 8, oven batch max 6, office alerts) are in logic.js and are enforced on the Worker.
+Each phone asks once for the workshop PIN (ask Ian; it is not stored in this repo). A phone with no signal cannot save - it shows a red "Not connected" bar.
+Fitting is two steps: station 11 "Tyre fit & balance" + station 13 "Fit to car". Results report to the Office view (Export JSON/CSV there).
