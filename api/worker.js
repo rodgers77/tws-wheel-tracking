@@ -3,7 +3,7 @@
 // Rules (strict order, acid 8, oven 6) live in ../app/logic.js and run HERE, not just on the phone.
 import '../logic.js';
 import { readPart } from './vision-read.js';
-const { apply, empty } = globalThis.TWS;
+const { apply, empty, SCHEMA } = globalThis.TWS;
 const ORIGINS = /^(https:\/\/rodgers77\.github\.io|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 export default {
   async fetch(req, env) {
@@ -37,9 +37,14 @@ export default {
     if (req.method === 'GET' && path === '/state') { const { v, db } = await load(); return json({ v, db }); }
     if (req.method === 'POST' && path === '/action') {
       let a; try { const t = await req.text(); if (t.length > 4000) throw 0; a = JSON.parse(t); } catch { return json({ error: 'Bad JSON' }, 400); }
+      if (!a || typeof a !== 'object' || Array.isArray(a)) return json({ error: 'Bad action' }, 400);
+      if (a.schema !== SCHEMA) return json({ error: 'App updated: reload the station or office page before making changes.', code: 'APP_UPDATE_REQUIRED' }, 409);
       for (let i = 0; i < 8; i++) {
         const { v, db } = await load();
+        // delete is version-aware: refuse if the board was looking at an older state (409, nothing changed)
+        if (a && ['delete','priority','rank'].includes(a.type) && a.v !== v) return json({ error: 'Board out of date, refresh and try again', v }, 409);
         const r = apply(db, a);
+        if (a && ['delete','priority','rank'].includes(a.type) && !r.ok) return json({ error: r.msg, v }, r.code || 400);
         const ev = r.events || []; delete r.events;
         if (r.ignored) return json({ r, v, db });   // empty scan: nothing saved
         const res = v === 0

@@ -7,37 +7,78 @@ small,.dim{color:#aaa}main{padding:10px 16px}
 .job{display:grid;grid-template-columns:2fr 1.4fr auto;gap:12px;align-items:center;background:#222;border-radius:12px;padding:14px 18px;margin:10px 0;border-left:10px solid #0a5}
 .job.hold{border-left-color:#ffd400;background:#3a3000}.cust{font-size:26px;font-weight:800}.meta{font-size:18px;color:#ccc}
 .st{font-size:40px;font-weight:900;line-height:1}.ago{font-size:18px;color:#aaa}.tag{background:#ffd400;color:#000;font-weight:900;padding:2px 10px;border-radius:6px;font-size:22px}
+.job>div{min-width:0}.records{grid-column:1/-1;min-width:0;overflow-wrap:anywhere;border-top:1px solid #444;padding-top:10px}.records h3{font-size:18px;margin:4px 0 8px}.record-group{margin:10px 0}.record-group ul{margin:4px 0;padding-left:22px}.record-group li{padding:3px 0}
+.rank-label{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:16px}.rank-label input{width:85px;max-width:100%;font-size:18px;padding:8px;border-radius:6px;border:0}
+.controls{display:flex;gap:6px;flex-wrap:wrap}.rush{background:#ffd400;color:#111;font-weight:800;padding:2px 6px;border-radius:4px}.job .del{background:#7a0000;margin-left:6px}
 .job button{font-size:16px;padding:8px 12px;border:0;border-radius:8px;background:#444;color:#fff}
-h2{font-size:20px;color:#aaa;margin:24px 0 6px}.done{font-size:18px;padding:8px 0;border-bottom:1px solid #333}
+h2{font-size:20px;color:#aaa;margin:24px 0 6px}
+.history{margin:10px 16px;background:#222;padding:12px;border-radius:10px;overflow-wrap:anywhere}.history summary{cursor:pointer;font-size:20px;font-weight:700}.entry{padding:8px 0;border-bottom:1px solid #444}.entry.alert{border-left:5px solid #b00;padding-left:8px}.entry.complete{border-left-color:#0a5}.time{color:#aaa;font-size:14px}
 #err{background:#b00;padding:8px 16px;display:none;font-weight:700}
 #dl{font-size:14px;padding:6px 10px;border:0;border-radius:6px;background:#333;color:#fff}
 @media(max-width:700px){header b{font-size:20px;flex-basis:100%}#q{flex-basis:100%}.job{grid-template-columns:1fr;gap:4px}.st{font-size:34px}.cust{font-size:22px}}
 </style></head><body>
 <header><b>TWS Live Board</b><input id="q" placeholder="Search customer / reg / part" aria-label="Search"></header>
 <div id="err"></div><main id="m"><p class="dim">Loading...</p></main>
-<footer style="padding:10px 16px" class="dim">Updates every 5 s · <span id="upd"></span> · <button id="dl">Download log (CSV)</button> <span id="ds"></span> · <a href="index.html#office" style="color:#aaa">Alerts &amp; full log</a></footer>
+<details class="history" id="office-alerts" open><summary>Office alerts</summary><div id="alerts"><p class="dim">Loading...</p></div></details>
+<details class="history" id="office-log"><summary>Scan log</summary><p class="dim">Retained app entries, newest first. Download log (CSV) for the full stored event history.</p><div id="log"><p class="dim">Loading...</p></div></details>
+<footer style="padding:10px 16px" class="dim">Updates every 5 s · <span id="upd"></span> · <button id="dl">Download log (CSV)</button> <span id="ds"></span></footer>
 <script src="logic.js"></script>
 <script>
-const API='https://tws-wheel-tracking-api.tws-workshop.workers.dev';
+const API=/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?'http://127.0.0.1:8787':'https://tws-wheel-tracking-api.tws-workshop.workers.dev'; // local test Worker when opened locally
 const {S,step}=TWS, esc=s=>String(s??'').replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
-let DB=null;const pin=()=>localStorage.pin||(localStorage.pin=prompt('Workshop PIN')||''); // remembered on this computer
-async function call(path,opt={}){const r=await fetch(API+path,{...opt,headers:{'Content-Type':'application/json','X-PIN':pin()}});
- if(r.status==401){localStorage.pin='';throw new Error('Wrong workshop PIN - reload and re-enter');}if(!r.ok)throw new Error('Server error '+r.status);return r;}
+let DB=null,V=0;const pin=()=>localStorage.pin||(localStorage.pin=prompt('Workshop PIN')||''); // remembered on this computer
+async function call(path,opt={}){if(path==='/action'&&opt.body)opt={...opt,body:JSON.stringify({...JSON.parse(opt.body),schema:TWS.SCHEMA})};const r=await fetch(API+path,{...opt,headers:{'Content-Type':'application/json','X-PIN':pin()}});
+ if(r.status==401){localStorage.pin='';throw new Error('Wrong workshop PIN - reload and re-enter');}if(!r.ok){let m='';try{m=(await r.clone().json()).error}catch{}throw new Error(m||'Server error '+r.status);};return r;}
 const err=m=>{const e=document.getElementById('err');e.style.display=m?'block':'none';e.textContent=m?'Not connected: '+m:'';};
 const ago=t=>{if(!t)return '';const m=Math.floor((Date.now()-new Date(t))/60000);return m<1?'just now':m<60?m+' min ago':Math.floor(m/60)+' h '+(m%60)+' min ago';};
 const day=t=>new Date(t).toLocaleDateString('en-GB',{timeZone:'Europe/London'});
 const name=id=>(S.find(s=>s.id==id)||{name:id}).name.replace(/^\d+\s*/,'');
-function draw(){if(!DB)return;const q=document.getElementById('q').value.trim().toLowerCase();
- const last=p=>{for(let i=DB.log.length-1;i>=0;i--)if(DB.log[i].job==p)return DB.log[i].t;};
+const ukTime=t=>{const d=new Date(t);return Number.isNaN(d.getTime())?'Unknown time':d.toLocaleString('en-GB',{timeZone:'Europe/London'})+' UK';};
+function drawHistory(){
+ document.getElementById('alerts').innerHTML=DB.alerts.slice().reverse().map(a=>`<div class="entry alert${/^Job complete/.test(a.msg)?' complete':''}">${esc(a.msg)}<div class="time">${esc(ukTime(a.t))}</div></div>`).join('')||'<p class="dim">No office alerts.</p>';
+ document.getElementById('log').innerHTML=DB.log.slice().reverse().map(r=>`<div class="entry">${esc(r.station)} · ${esc(r.job)} · ${esc(r.what)}${r.name?' · '+esc(r.name):''}<div class="time">${esc(ukTime(r.t))}</div></div>`).join('')||'<p class="dim">No scans recorded.</p>';
+}
+function recordedChecklist(j){
+ const ticks=Array.isArray(j.ticks)?j.ticks:[];
+ if(!ticks.length)return '<section class="records" aria-label="Recorded checklist"><p class="dim">No checklist records available.</p></section>';
+ const groups=[];for(const tick of ticks){const previous=groups[groups.length-1];
+  if(previous&&previous.st===tick.st&&previous.t===tick.t&&previous.name===tick.name)previous.ticks.push(tick);
+  else groups.push({st:tick.st,t:tick.t,name:tick.name,ticks:[tick]});}
+ const visits=Object.create(null);return '<section class="records" aria-label="Recorded checklist"><h3>Recorded checklist</h3>'+groups.map(g=>{
+  visits[g.st]=(visits[g.st]||0)+1;const station=esc(name(g.st||'')||'Station not recorded');
+  const when=g.t||((g.ticks.length===1&&g.ticks[0].item==='batch time')?g.ticks[0].value:'');
+  return `<div class="record-group"><b>${station}${visits[g.st]>1?' · recorded group '+visits[g.st]:''}</b><div class="time">${esc(g.name||'Name not recorded')} · ${when?esc(ukTime(when)):'Time not recorded'}</div><ul>`+g.ticks.map(t=>{
+   if(Object.prototype.hasOwnProperty.call(t,'value')){const value=t.value===null||String(t.value).trim()===''?'Value not recorded':t.item==='batch time'?ukTime(t.value):String(t.value);return `<li>${esc(t.item)}: <b>${esc(value)}</b></li>`;}
+   return `<li><span aria-label="Recorded tick">✓</span> ${esc(t.item)} <small>(recorded tick)</small></li>`;
+  }).join('')+'</ul></div>';
+ }).join('')+'</section>';
+}
+function jobCard(j,i,last,finished=false){return `<div class="job${!finished&&j.hold?' hold':''}"><div><div class="cust">${esc(j.cust)} ${!finished&&j.rush===true?'<span class="rush">RUSH</span>':''}</div><div class="meta">${esc(j.make)} · ${esc(j.reg||'no reg')} · <b>${esc(j.part)}</b> · ${esc(j.n)} wheels${j.tyre?' · Wheel size '+esc(TWS.wheelSize(j.tyre)):''}</div></div>
+ <div><div class="st">${finished?'Finished':esc(name(step(j)))}${!finished&&j.inBatch?' <small>(loading)</small>':''}</div><div class="ago">${finished?'Completed '+esc(new Date(last(j)).toLocaleTimeString('en-GB',{timeZone:'Europe/London',hour:'2-digit',minute:'2-digit'}))+' UK':(j.hold?'<span class="tag">ON HOLD</span> ':'')+'last scan '+ago(last(j))}</div></div>
+ ${finished?'':`<div class="controls"><label class="rank-label">Priority number<input type="number" min="1" step="1" data-rank-input="${i}" value="${esc(j.priorityNumber??'')}" aria-label="Priority number for ${esc(j.part)}"></label><button data-rank="${i}">Save priority</button><button data-rank-clear="${i}">Clear priority</button><button aria-pressed="${j.rush===true}" data-priority="${i}">${j.rush===true?'Return to normal':'Set rush'}</button><button data-hold="${i}">${j.hold?'Release':'Hold'}</button><button class="del" data-del="${i}">Delete</button></div>`}${finished?recordedChecklist(j):''}</div>`;}
+function draw(){if(!DB)return;drawHistory();const q=document.getElementById('q').value.trim().toLowerCase();
+ const last=j=>{ // own records are authoritative; never borrow another booking's same-part history
+  if(j.done){const times=(j.ticks||[]).map(t=>t.t||(t.item==='batch time'?t.value:'')).filter(t=>t&&!Number.isNaN(new Date(t).getTime()));if(times.length)return times[times.length-1];
+   if(DB.jobs.some(other=>other!==j&&other.part===j.part))return;}
+  const next=DB.jobs.filter(other=>other!==j&&other.part===j.part&&other.booked>j.booked).map(other=>other.booked).sort()[0];
+  for(let i=DB.log.length-1;i>=0;i--){const r=DB.log[i];if(r.job===j.part&&(!j.booked||r.t>=j.booked)&&(!next||r.t<next))return r.t;}};
  const hit=j=>!q||[j.cust,j.reg,j.part].some(v=>String(v||'').toLowerCase().includes(q));
- const open=DB.jobs.map((j,i)=>({j,i})).filter(x=>!x.j.done&&hit(x.j)).sort((a,b)=>a.j.booked<b.j.booked?-1:1);
- const done=DB.jobs.filter(j=>j.done&&hit(j)&&last(j.part)&&day(last(j.part))==day(Date.now()));
- document.getElementById('m').innerHTML=(open.map(({j,i})=>`<div class="job${j.hold?' hold':''}"><div><div class="cust">${esc(j.cust)}</div><div class="meta">${esc(j.make)} · ${esc(j.reg||'no reg')} · <b>${esc(j.part)}</b> · ${j.n} wheels</div></div>
-  <div><div class="st">${esc(name(step(j)))}${j.inBatch?' <small>(loading)</small>':''}</div><div class="ago">${j.hold?'<span class="tag">ON HOLD</span> ':''}last scan ${ago(last(j.part))}</div></div>
-  <button data-hold="${i}">${j.hold?'Release':'Hold'}</button></div>`).join('')||'<p class="dim">No open jobs'+(q?' match':'')+'.</p>')
-  +`<h2>Completed today (${done.length})</h2>`+(done.map(j=>`<div class="done">${esc(j.cust)} · ${esc(j.make)} · ${esc(j.reg)} · ${esc(j.part)} · ${j.n} wheels <span class="dim">done ${new Date(last(j.part)).toLocaleTimeString('en-GB',{timeZone:'Europe/London',hour:'2-digit',minute:'2-digit'})}</span></div>`).join('')||'<p class="dim">None yet.</p>');
- document.querySelectorAll('[data-hold]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.hold];try{DB=(await (await call('/action',{method:'POST',body:JSON.stringify({type:'hold',st:'office',dev:'office-board',part:j.part,hold:!j.hold})})).json()).db;draw();}catch(e){err(e.message);}});}
-async function pull(){try{DB=(await (await call('/state')).json()).db;err('');document.getElementById('upd').textContent='updated '+new Date().toLocaleTimeString('en-GB',{timeZone:'Europe/London'});draw();}catch(e){err(e.message);}}
+ const open=DB.jobs.map((j,i)=>({j,i})).filter(x=>!x.j.done&&hit(x.j)).sort((a,b)=>TWS.compare(a.j,b.j));
+ const done=DB.jobs.filter(j=>j.done&&hit(j)&&last(j)&&day(last(j))==day(Date.now()));
+ document.getElementById('m').innerHTML=(open.map(({j,i})=>jobCard(j,i,last)).join('')||'<p class="dim">No open jobs'+(q?' match':'')+'.</p>')
+  +`<h2>Completed today (${done.length})</h2>`+(done.map(j=>jobCard(j,null,last,true)).join('')||'<p class="dim">None yet.</p>');
+ document.querySelectorAll('[data-hold]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.hold];try{const d=await (await call('/action',{method:'POST',body:JSON.stringify({type:'hold',st:'office',dev:'office-board',part:j.part,hold:!j.hold})})).json();DB=d.db;V=d.v;draw();}catch(e){err(e.message);}});
+ document.querySelectorAll('[data-rank], [data-rank-clear]').forEach(b=>b.onclick=async()=>{const i=b.dataset.rank??b.dataset.rankClear,j=DB.jobs[i],input=document.querySelector(`[data-rank-input="${i}"]`),text=b.hasAttribute('data-rank-clear')?'':input.value.trim();
+  if(text&&(!/^[0-9]+$/.test(text)||!Number.isSafeInteger(Number(text))||Number(text)<=0)){err('Priority number must be a positive whole number.');return;}
+  let error='';try{await call('/action',{method:'POST',body:JSON.stringify({type:'rank',st:'office',dev:'office-board',part:j.part,booked:j.booked,v:V,priorityNumber:text?Number(text):null})});}catch(e){error=e.message;}
+  await pull(true);if(error)err(error);});
+ document.querySelectorAll('[data-priority]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.priority];b.disabled=true;
+  let error='';try{await call('/action',{method:'POST',body:JSON.stringify({type:'priority',st:'office',dev:'office-board',part:j.part,booked:j.booked,v:V,rush:j.rush!==true})});}catch(e){error=e.message;}
+  await pull();if(error)err(error);});
+ document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.del];
+  if(!confirm(`Delete this job for good?\n\n${j.cust} · ${j.make} · ${j.reg||'no reg'}\nPart ${j.part} · job ${j.job||'-'} · ${j.n} wheels\nAt: ${name(step(j))}\n\nThe scan log is kept. This cannot be undone.`))return;
+  try{await call('/action',{method:'POST',body:JSON.stringify({type:'delete',st:'office',dev:'office-board',part:j.part,booked:j.booked,v:V})});err('');}catch(e){err(e.message);}await pull();});}
+async function pull(force=false){if(!force&&document.activeElement?.matches('[data-rank-input]'))return;try{const d=await (await call('/state')).json();DB=d.db;V=d.v;err('');document.getElementById('upd').textContent='updated '+new Date().toLocaleTimeString('en-GB',{timeZone:'Europe/London'});draw();}catch(e){err(e.message);}}
 document.getElementById('q').oninput=draw;pull();setInterval(pull,5000);
 document.getElementById('dl').onclick=async()=>{const ds=document.getElementById('ds');
  try{const r=await call('/export.csv');const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());

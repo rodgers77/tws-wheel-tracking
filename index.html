@@ -7,6 +7,7 @@ header{background:#e30613;padding:12px 16px;font-weight:800;font-size:22px}
 main{padding:12px;max-width:640px;margin:auto}
 input,select{font-size:22px;padding:12px;border-radius:10px;border:0;min-width:0;width:100%;box-sizing:border-box;margin:4px 0}
 button{font-size:22px;padding:14px 18px;border:0;border-radius:10px;background:#e30613;color:#fff;font-weight:700;margin:4px 0}
+.choice{border:0;padding:4px 0;margin:4px 0}.choice legend{font-size:20px}.choice button{background:#444;min-width:76px;min-height:44px;margin-right:6px}.choice button[aria-pressed="true"]{background:#0a5;outline:2px solid white}
 .row{display:flex;gap:8px}.row input{flex:1}
 .card{background:#222;border-radius:12px;padding:14px;margin:10px 0}
 .big{font-size:40px;font-weight:900}.dim{color:#aaa;font-size:16px}
@@ -29,8 +30,7 @@ const {S,route,step,due:due3,ACID_MAX,OVEN_MAX}=TWS, sum=TWS.sum;
 let DB = API?TWS.empty():JSON.parse(localStorage.tws||'{"jobs":[],"log":[],"alerts":[]}');
 const save = ()=>{if(!API)localStorage.tws=JSON.stringify(DB);};
 const dev = localStorage.dev||(localStorage.dev=Math.random().toString(36).slice(2,12));
-const OFFICE={id:'office',name:'Office'}; // view only, not a checkpoint
-const stn = ()=>{const id=location.hash.slice(1)||localStorage.station||'rec';return id=='office'?OFFICE:S.find(s=>s.id==id)||S[0];};
+const stn = ()=>{const id=location.hash.slice(1)||localStorage.station||'rec';return S.find(s=>s.id==id)||S[0];};
 const wheels=id=>TWS.wheels(DB,id), due=id=>due3(DB,id,dev);
 const esc = s=>String(s).replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
 let msg='', CUR=JSON.parse(localStorage.cur||'null');
@@ -42,49 +42,50 @@ async function call(path,opt={}){if(!localStorage.pin)localStorage.pin=prompt('W
 async function pull(){if(!API)return;try{DB=(await call('/state')).db;setOnline(1);}catch(e){setOnline(0,e.message);}}
 let NET='';function setOnline(ok,why){NET=ok?'':'<p class="bad">Not connected: '+esc(why||'')+' - nothing is being saved. Check signal.</p>';const e=document.getElementById('net');if(e)e.innerHTML=NET;}
 // Every change goes through here: on the server when API is set, otherwise on this phone.
-async function act(a){a.dev=dev;let r;
+async function act(a){a.schema=TWS.SCHEMA;a.dev=dev;let r;
  if(API){try{const d=await call('/action',{method:'POST',body:JSON.stringify(a)});DB=d.db;r=d.r;setOnline(1);}catch(e){setOnline(0,e.message);return {ok:false,msg:'Not saved: '+e.message};}}
  else{r=TWS.apply(DB,a);save();}
  return r;}
 const show=r=>{if(r&&r.msg)msg=`<p class="${r.ok?'ok':'bad'}">${esc(r.msg)}</p>`;draw();};
 function draw(){const s=stn(),m=document.getElementById('m');document.getElementById('sn').textContent=s.name;
  let h='<div id="net">'+NET+'</div>'+msg;msg='';
- if(s.id=='rec'){h+=`<div class="card"><b>New job</b><form id="rf">${[['part','Part number (job code)'],['job','Job number'],['cust','Customer name'],['n','Number of wheels'],['tyre','Tyre size'],['make','Car make'],['reg','Reg (optional)']].map(([k,p])=>{const i=`<input name="${k}" ${k=='part'?'id="rpart"':''} placeholder="${p}" ${k=='reg'?'':'required'} ${k=='n'?'type=number min=1 max=4':''}>`;return k=='part'?`<div class="row">${i}<label class="cam" aria-label="Take photo of part number">&#128247;<input type="file" accept="image/*" capture="environment" data-cam="rpart" hidden></label></div><div id="camst" class="dim"></div>`:i;}).join('')}
+ if(s.id=='rec'){h+=`<div class="card"><b>New job</b><form id="rf">${[['part','Part number (job code)'],['job','Job number'],['cust','Customer name'],['n','Number of wheels'],['tyre','Wheel size'],['make','Car make'],['reg','Reg (optional)']].map(([k,p])=>{const i=`<input name="${k}" ${k=='part'?'id="rpart"':''} placeholder="${p}" ${k=='reg'?'':'required'} ${k=='n'?'type=number min=1 max=4':''}>`;return k=='part'?`<div class="row">${i}<label class="cam" aria-label="Take photo of part number">&#128247;<input type="file" accept="image/*" capture="environment" data-cam="rpart" hidden></label></div><div id="camst" class="dim"></div>`:i;}).join('')}
+ <label>Job type<select name="jobType" id="jobType"><option>Car</option><option>Loose wheel</option></select></label>
+ <label id="hasTyreLabel" hidden>Loose wheel tyre presence<select name="hasTyre" id="hasTyre"><option value="">With or without tyre?</option><option value="Yes">With tyre</option><option value="No">Without tyre</option></select></label>
  <select name="finish"><option>Powder coat</option><option>Diamond cut</option></select>
  <select name="staying"><option value="">Car staying?</option><option>Yes</option><option>No</option></select>
  <select name="tyreinc"><option value="">Tyre included?</option><option>Yes</option><option>No</option></select>
+ <fieldset class="choice"><legend>Centre caps</legend><input type="hidden" name="centrecaps" id="centrecaps" value=""><button type="button" data-choice-field="centrecaps" data-choice="Yes" aria-pressed="false">Yes</button><button type="button" data-choice-field="centrecaps" data-choice="No" aria-pressed="false">No</button></fieldset>
+ <fieldset class="choice"><legend>Inserts</legend><input type="hidden" name="inserts" id="inserts" value=""><button type="button" data-choice-field="inserts" data-choice="Yes" aria-pressed="false">Yes</button><button type="button" data-choice-field="inserts" data-choice="No" aria-pressed="false">No</button></fieldset>
  <button>Book in</button></form></div>`;}
- else if(s.id=='office'){h+=`<div class="card"><b>Office alerts</b>${DB.alerts.slice().reverse().map(a=>`<div class="${/complete/i.test(a.msg)?'ok':'bad'}" style="margin:6px 0">${esc(a.msg)} <span class="dim">${a.t.slice(11,16)}</span></div>`).join('')||'<p class="dim">None</p>'}</div>
- <div class="card"><b>Where every job is</b> <span class="dim">(${API?'all phones, updates every 5 s':'this phone only'})</span>${DB.jobs.map((j,i)=>`<div style="margin:8px 0">${esc(j.part)} · ${esc(j.cust)} · ${j.n} wheels<br><span class="dim">${j.done?'COMPLETE':(S.find(x=>x.id==step(j)).name)}${j.hold?' · ON HOLD':''}</span> ${j.done?'':`<button data-hold="${i}">${j.hold?'Release':'Hold'}</button>`}</div>`).join('')}</div>
- <div class="card"><b>All scans</b>${DB.log.slice(-50).reverse().map(r=>`<div class="dim">${r.t.slice(11,16)} ${esc(r.station)} ${esc(r.job)} ${esc(r.what)} ${esc(r.name)}</div>`).join('')}</div>
- <button id="exj">Export JSON</button> <button id="exc">Export CSV</button>`;}
  else{const d=due(s.id);
   if(s.batch){const b=DB.jobs.filter(j=>j.inBatch);h+=`<div class="card"><b>Loading batch</b> (${wheels2(b)}/${OVEN_MAX} wheels)<br>${b.map(j=>esc(j.part)).join(', ')||'<span class="dim">empty</span>'}<br>${b.length?'<button id="go">Start batch (records one time)</button>':''}</div>`;}
   if(s.id=='acid')h+=`<p class="dim">In acid now: ${wheels('prep')}/${ACID_MAX} wheels</p>`;
-  h+=`<div class="card"><div class="dim">NEXT DUE</div>${d?`<div class="big">${esc(d.part)}</div><div class="dim">${esc(d.cust)} · ${d.n} wheels · ${esc(d.finish)}${s.id=='lac'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
+  h+=`<div class="card"><div class="dim">NEXT DUE</div>${d?`<div class="big">${esc(d.part)}${d.rush===true?' <span class="ph">RUSH</span>':''}</div><div class="dim">${esc(d.cust)} · ${d.n} wheels · ${esc(d.finish)}${d.tyre?' · Wheel size '+esc(TWS.wheelSize(d.tyre)):''}${s.id=='lac'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
   <form id="sf" class="row"><input id="code" placeholder="Scan / type part number" autocomplete="off"><label class="cam" aria-label="Take photo of part number">&#128247;<input type="file" accept="image/*" capture="environment" data-cam="code" hidden></label><button>Scan</button></form><div id="camst" class="dim"></div>`;
   const cur=CUR&&CUR.st==s.id&&DB.jobs.find(j=>j.part==CUR.part&&!j.done&&step(j)==s.id);
-  if(cur&&!s.batch){h+=`<form id="cf" class="card"><b>${esc(cur.part)} checklist</b>${(s.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(s.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" required inputmode="decimal">`).join('')}
-  <input name="who" placeholder="Your name" required value="${esc(localStorage.who||'')}"><button>Done</button></form>`;}
+  const req=cur?TWS.requirements(cur,s.id):s;
+  if(cur&&req.blocked)h+=`<p class="bad">${esc(req.blocked)}</p>`;
+  if(cur&&!s.batch&&!req.blocked){h+=`<form id="cf" class="card"><b>${esc(cur.part)} checklist</b>${cur.tyre?'<div class="dim">Wheel size '+esc(TWS.wheelSize(cur.tyre))+'</div>':''}${(req.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(req.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" ${s.id!=='fin'||n==='Torque'?'required':''} inputmode="decimal" ${s.id==='fin'?'type="number" step="any" min="0"':''} aria-label="${n}">`).join('')}
+  ${s.id==='fin'?'<p class="dim">'+(req.pressure?'Enter Front PSI or Rear PSI, or both. ':'')+((req.nums||[]).includes('Torque')?'Enter specified torque.':'Confirm completion with your name.')+'</p>':''}<input name="who" placeholder="Your name" required value="${esc(localStorage.who||'')}"><button>Done</button></form>`;}
  }
  m.innerHTML=h;bind();}
 const wheels2=b=>b.reduce((a,j)=>a+ +j.n,0);
 function bind(){const q=id=>document.getElementById(id),s=stn();
+ if(q('jobType'))q('jobType').onchange=()=>{const loose=q('jobType').value==='Loose wheel',n=document.querySelector('[name=n]');q('hasTyreLabel').hidden=!loose;q('hasTyre').required=loose;n.readOnly=loose;if(loose)n.value='1';};
+ document.querySelectorAll('[data-choice-field]').forEach(b=>b.onclick=()=>{q(b.dataset.choiceField).value=b.dataset.choice;document.querySelectorAll('[data-choice-field]').forEach(other=>{if(other.dataset.choiceField===b.dataset.choiceField)other.setAttribute('aria-pressed',String(other===b));});});
  q('rf')&&(q('rf').onsubmit=async e=>{e.preventDefault();const r=await act({type:'book',job:Object.fromEntries(new FormData(e.target))});if(r.ok)e.target.reset();show(r);});
  q('sf')&&(q('sf').onsubmit=async e=>{e.preventDefault();if(!q('code').value.trim())return;const r=await act({type:'scan',st:s.id,code:q('code').value.trim()});if(r.open)setCur({st:s.id,part:r.open});show(r);});
- q('cf')&&(q('cf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim();localStorage.who=who;
-  const r=await act({type:'tick',st:s.id,part:CUR.part,who,checks:(s.checks||[]).map((c,i)=>!!f.get('c'+i)),nums:(s.nums||[]).map((n,i)=>f.get('n'+i))});
+ q('cf')&&(q('cf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim(),req=TWS.requirements(DB.jobs.find(j=>j.part===CUR.part),s.id);localStorage.who=who;
+  const r=await act({type:'tick',st:s.id,part:CUR.part,who,checks:(req.checks||[]).map((c,i)=>!!f.get('c'+i)),nums:(req.nums||[]).map((n,i)=>f.get('n'+i))});
   if(r.ok||!r.open)setCur(null);show(r);});
  document.querySelectorAll('[data-cam]').forEach(f=>f.onchange=async()=>{const file=f.files[0];f.value='';if(!file)return;const st=t=>q('camst')&&(q('camst').textContent=t);
   try{if(!window.readPartFromPhoto)throw new Error('camera reader not loaded yet');const r=await readPartFromPhoto(file,st);const box=q(f.dataset.cam);
    if(r.code){box.value=r.code.trim();box.focus();st('Read "'+r.code+'" from the '+r.how+'. CHECK it matches the wheel, fix it if needed, then tap '+(f.dataset.cam=='code'?'Scan':'Book in')+'.');}
    else st('Could not read a part number - type it in, or try another photo closer up with good light.');}catch(e){st('Photo reader failed: '+e.message+' - type it in.');}});
  q('go')&&(q('go').onclick=async()=>show(await act({type:'batch',st:'oven'})));
- document.querySelectorAll('[data-hold]').forEach(b=>b.onclick=async()=>{const j=DB.jobs[b.dataset.hold];show(await act({type:'hold',st:'office',part:j.part,hold:!j.hold}));});
- q('exj')&&(q('exj').onclick=()=>dl('tws-data.json',JSON.stringify(DB,null,1)));
- q('exc')&&(q('exc').onclick=()=>dl('tws-log.csv','time,job,station,what,name\n'+DB.log.map(r=>[r.t,r.job,r.station,r.what,r.name].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')));}
-function dl(n,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t]));a.download=n;a.click();}
-const sel=document.getElementById('st');sel.innerHTML=S.concat(OFFICE).map(s=>`<option value="${s.id}">${s.name}</option>`).join('');sel.value=stn().id;
+}
+const sel=document.getElementById('st');sel.innerHTML=S.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');sel.value=stn().id;
 sel.onchange=async()=>{localStorage.station=sel.value;location.hash='';await pull();draw();};
 const idle=()=>!document.getElementById('cf')&&!document.getElementById('rf')&&(!document.activeElement||document.activeElement==document.body);
 if(!API)addEventListener('storage',e=>{if(e.key=='tws'){DB=JSON.parse(e.newValue);draw();}});
