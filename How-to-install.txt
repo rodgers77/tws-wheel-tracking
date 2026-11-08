@@ -18,15 +18,16 @@ INSTALL ON iPHONE (Safari - must be Safari, not Chrome)
 
 PICK THE STATION FOR THIS PHONE
 1. Open the app and scroll to the bottom.
-2. Choose the station from the dropdown (e.g. "4 Strip-down", "8 Oven", "13 Fit to car").
+2. Choose the station from the dropdown (1 Reception, 2 Wheel machine, 3 Acid room, 4 Prep, 5 Oven, 6 Diamond cut, 7 Lacquer).
 3. The phone remembers that station every time the app is opened, so it stays set
    for that bench. Only change it if the phone moves to a different station.
    (There is no password lock yet - ask staff not to change the dropdown.)
 
 THE OFFICE
-The office uses office.html (the Office screen link above), or any phone set to
-station "3 Office / Hold / Status". It shows where every job is, all scans,
-wrong-scan alerts, completed-job alerts, Hold/Release, and Export (CSV/JSON).
+The office uses office.html (the Office screen link above): a live board showing
+every open job, where it is, ON HOLD jobs, jobs completed today, a search box,
+Hold/Release, and "Download log (CSV)". Picking "Office" in a phone's dropdown
+shows alerts, all scans and Export.
 
 USING IT
 Each tick and "Done" is saved with the person's name and the time. Scans in the

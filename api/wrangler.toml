@@ -1,0 +1,14 @@
+name = "tws-wheel-tracking-api"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tws-wheel-tracking"
+database_id = "73574c96-a844-4bab-b304-3e34bb413640"
+[ai]
+binding = "AI"   # camera part-number reader (/read-part)
+
+# Secret (NOT here): PIN  ->  npx wrangler secret put PIN

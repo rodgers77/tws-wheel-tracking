@@ -29,7 +29,8 @@ const {S,route,step,due:due3,ACID_MAX,OVEN_MAX}=TWS, sum=TWS.sum;
 let DB = API?TWS.empty():JSON.parse(localStorage.tws||'{"jobs":[],"log":[],"alerts":[]}');
 const save = ()=>{if(!API)localStorage.tws=JSON.stringify(DB);};
 const dev = localStorage.dev||(localStorage.dev=Math.random().toString(36).slice(2,12));
-const stn = ()=>S.find(s=>s.id==(location.hash.slice(1)||localStorage.station||'rec'))||S[0];
+const OFFICE={id:'office',name:'Office'}; // view only, not a checkpoint
+const stn = ()=>{const id=location.hash.slice(1)||localStorage.station||'rec';return id=='office'?OFFICE:S.find(s=>s.id==id)||S[0];};
 const wheels=id=>TWS.wheels(DB,id), due=id=>due3(DB,id,dev);
 const esc = s=>String(s).replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
 let msg='', CUR=JSON.parse(localStorage.cur||'null');
@@ -59,8 +60,8 @@ function draw(){const s=stn(),m=document.getElementById('m');document.getElement
  <button id="exj">Export JSON</button> <button id="exc">Export CSV</button>`;}
  else{const d=due(s.id);
   if(s.batch){const b=DB.jobs.filter(j=>j.inBatch);h+=`<div class="card"><b>Loading batch</b> (${wheels2(b)}/${OVEN_MAX} wheels)<br>${b.map(j=>esc(j.part)).join(', ')||'<span class="dim">empty</span>'}<br>${b.length?'<button id="go">Start batch (records one time)</button>':''}</div>`;}
-  if(s.id=='acid')h+=`<p class="dim">In acid now: ${wheels('acidout')}/${ACID_MAX} wheels</p>`;
-  h+=`<div class="card"><div class="dim">NEXT DUE</div>${d?`<div class="big">${esc(d.part)}</div><div class="dim">${esc(d.cust)} · ${d.n} wheels · ${esc(d.finish)}${s.id=='fitm'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
+  if(s.id=='acid')h+=`<p class="dim">In acid now: ${wheels('prep')}/${ACID_MAX} wheels</p>`;
+  h+=`<div class="card"><div class="dim">NEXT DUE</div>${d?`<div class="big">${esc(d.part)}</div><div class="dim">${esc(d.cust)} · ${d.n} wheels · ${esc(d.finish)}${s.id=='lac'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
   <form id="sf" class="row"><input id="code" placeholder="Scan / type part number" autocomplete="off"><label class="cam" aria-label="Take photo of part number">&#128247;<input type="file" accept="image/*" capture="environment" data-cam="code" hidden></label><button>Scan</button></form><div id="camst" class="dim"></div>`;
   const cur=CUR&&CUR.st==s.id&&DB.jobs.find(j=>j.part==CUR.part&&!j.done&&step(j)==s.id);
   if(cur&&!s.batch){h+=`<form id="cf" class="card"><b>${esc(cur.part)} checklist</b>${(s.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(s.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" required inputmode="decimal">`).join('')}
@@ -83,7 +84,7 @@ function bind(){const q=id=>document.getElementById(id),s=stn();
  q('exj')&&(q('exj').onclick=()=>dl('tws-data.json',JSON.stringify(DB,null,1)));
  q('exc')&&(q('exc').onclick=()=>dl('tws-log.csv','time,job,station,what,name\n'+DB.log.map(r=>[r.t,r.job,r.station,r.what,r.name].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')));}
 function dl(n,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t]));a.download=n;a.click();}
-const sel=document.getElementById('st');sel.innerHTML=S.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');sel.value=stn().id;
+const sel=document.getElementById('st');sel.innerHTML=S.concat(OFFICE).map(s=>`<option value="${s.id}">${s.name}</option>`).join('');sel.value=stn().id;
 sel.onchange=async()=>{localStorage.station=sel.value;location.hash='';await pull();draw();};
 const idle=()=>!document.getElementById('cf')&&!document.getElementById('rf')&&(!document.activeElement||document.activeElement==document.body);
 if(!API)addEventListener('storage',e=>{if(e.key=='tws'){DB=JSON.parse(e.newValue);draw();}});
