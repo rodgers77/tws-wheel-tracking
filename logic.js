@@ -2,7 +2,7 @@
 // so the strict order and the acid 8 / oven 6 limits are enforced the same way in both places.
 (function(){
 const ACID_MAX = 8, OVEN_MAX = 6;
-const SCHEMA='tws-last4-photo-20261111-3';
+const SCHEMA='tws-marks-20261111-4';
 // Photos: phone sends one downscaled JPEG data URL with the booking; the Worker stores it in its own D1 table
 // (never inside the polled state). Limit is on the base64 data URL length (~330 KB of JPEG).
 const PHOTO_MAX = 450000, PHOTO_MIN = 200;
@@ -31,6 +31,14 @@ const photoId = v => typeof v==='string'&&/^[a-z0-9-]{8,64}$/.test(v);
 // Permanent record key: Worker-issued id (same as the photo id) for new jobs; booked time + part for older jobs.
 const jobKey = j => j.id || ('legacy-'+j.booked+'-'+j.part);
 const colour = j => String(j&&j.colour||'').trim()||'Colour not set';
+// Triangle / Square marks: lets the same part number be in the workshop up to three times (no mark, Triangle, Square).
+// Old jobs have no mark field and behave exactly as before.
+const MARKS = ['Triangle','Square'], MARK_SYM = {Triangle:'▲',Square:'■'};
+const mark = j => MARKS.includes(j&&j.mark)?j.mark:'';
+const markText = j => mark(j)?MARK_SYM[mark(j)]+' '+mark(j).toUpperCase():'';
+const markCheck = j => 'Confirm wheel is marked '+mark(j).toUpperCase();
+// Find one job by its permanent key (new clients); older callers fall back to part (+ booked time).
+const findJob = (DB,a,openOnly) => DB.jobs.find(x=>(!openOnly||!x.done)&&(a.key?jobKey(x)===String(a.key):x.part==String(a.part??'')&&(a.booked===undefined||x.booked==String(a.booked))));
 // Suggestions only (most used finishes in the TWS colour log); any text up to 40 characters is accepted.
 const COLOURS = ['Gloss Black','Gunmetal','Gunmetal Light','Charcoal','Sports Silver 1','Sports Silver 3','Black Chrome','Satin Black','Matt Black','Diamond cut'];
 const sum = b => b.reduce((a,j)=>a+ +j.n,0);
@@ -46,11 +54,14 @@ const queue = (DB,id,dev) => DB.jobs.filter(j=>!j.done&&!j.hold&&step(j)==id&&!j
   .sort((a,b)=>Number(!!b.claim)-Number(!!a.claim) || compare(a,b));
 const due = (DB,id,dev) => queue(DB,id,dev)[0];
 // Station screens never show the part number (the lad must read it off the wheel): label jobs by customer and job number.
-const label = j => j.cust+(j.job?' (job '+j.job+')':'');
+const label = j => j.cust+(j.job?' (job '+j.job+')':'')+(mark(j)?' '+markText(j):'');
 const st = id => S.find(s=>s.id==id);
 // One checklist schema for the phone and Worker. Tyre included is NOT physical tyre presence.
 const jobHasTyre = j => j.jobType!=='Loose wheel'||j.hasTyre==='Yes';
-const requirements = (j,id) => {
+const requirements = (j,id) => withMark(j,id,baseRequirements(j,id));
+// Marked jobs: every station with a checklist also needs 'Confirm wheel is marked TRIANGLE/SQUARE' (first tick).
+const withMark = (j,id,r) => !mark(j)||r.blocked||!((r.checks||[]).length||(r.nums||[]).length||r.nameRequired)?r:{...r,checks:[markCheck(j),...(r.checks||[])]};
+const baseRequirements = (j,id) => {
  const base=st(id)||{};
  if(id==='wm')return {...base,nameRequired:true,checks:[...(base.checks||[]),...(jobHasTyre(j)?['Tyres removed']:[]),'Valve removed','Weights removed','Wheel checked for buckles and cracks',...(j.inserts!=='No'?['Inserts removed']:[]),...(jobHasTyre(j)?['TPMS, centre cap and inserts stored in tyre']:[])]}; // every job; hide ticks that don't apply (Ian, 11 Nov)
  if(id!='fin')return base;
@@ -85,10 +96,10 @@ const str = (v,n=80) => String(v??'').replace(/[\r\n\t]+/g,' ').trim().slice(0,n
 function apply(DB, a, t){ const ev=[]; const r=apply1(DB,a,t,ev); if(r&&!r.ignored)r.events=ev; return r; }
 function apply1(DB, a, t, ev){
  t = t || new Date().toISOString(); const dev = str(a.dev,40);
- const log = (job,station,what,name='',x={})=>{DB.log.push({t,job,station,what,name});const j=x.job||(job?DB.jobs.find(y=>y.part==job&&!y.done)||DB.jobs.filter(y=>y.part==job).pop():null);
+ const log = (job,station,what,name='',x={})=>{const j=x.job||(job?DB.jobs.find(y=>y.part==job&&!y.done)||DB.jobs.filter(y=>y.part==job).pop():null);DB.log.push({t,job,station,what,name,...(j?{key:jobKey(j)}:{}),...(j&&mark(j)?{mark:mark(j)}:{})});
   ev.push({t,part:job,jobId:j?jobKey(j):'',jobno:j?j.job:'',cust:j?j.cust:'',colour:j?String(j.colour||''):'',photo:j&&photoId(j.photo)?j.photo:'',station,action:x.action||what,items:x.items||'',nums:x.nums||'',name,dev,detail:what});if(DB.log.length>3000)DB.log.splice(0,DB.log.length-3000);};
  const alertOffice = (m,j)=>{DB.alerts.push({t,msg:m});if(DB.alerts.length>500)DB.alerts.shift();log(j?j.part:'',str(a.st),'ALERT: '+m,'',{action:/^Job complete/.test(m)?'complete':'alert',job:j});};
- const advance = j=>{j.claim=null;j.pos++;if(j.pos>=route(j).length){j.done=1;j.doneAt=t;alertOffice(`Job complete: ${j.part} (${j.cust}, job ${j.job})`,j);}};
+ const advance = j=>{j.claim=null;j.pos++;if(j.pos>=route(j).length){j.done=1;j.doneAt=t;alertOffice(`Job complete: ${j.part} (${j.cust}, job ${j.job}${mark(j)?', '+markText(j):''})`,j);}};
  const s = st(a.st);
  switch(a.type){
  case 'book': { const j={}; for(const k of ['part','job','cust','tyre','make','reg','staying','tyreinc'])j[k]=str(a.job&&a.job[k]);
@@ -104,8 +115,14 @@ function apply1(DB, a, t, ev){
   j.colour=str(a.job&&a.job.colour,40);if(!j.colour)return {ok:false,msg:'Enter the finish colour.'};
   // The Worker (or local phone store) has already saved the photo under this id; the state keeps only the id.
   if(!photoId(a.photoId))return {ok:false,msg:'Take a photo of the FRONT of the wheel first.'};j.photo=a.photoId;j.id=a.photoId;j.dev=dev;
-  if(DB.jobs.some(x=>x.part==j.part&&!x.done))return {ok:false,msg:'Part number already in workshop - mark triangle/square variant.'};
-  Object.assign(j,{booked:t,pos:0,ticks:[]});DB.jobs.push(j);log(j.part,'rec','booked in','',{action:'book'});return {ok:true,msg:'Booked in '+j.part+' · last four '+last4(j.part)}; }
+  j.mark=MARKS.includes(a.job&&a.job.mark)?a.job.mark:'';
+  // Same part already in the workshop: allowed only with a mark no other open job of that part is using.
+  const same=DB.jobs.filter(x=>x.part==j.part&&!x.done), used=same.map(x=>mark(x)||'unmarked');
+  if(same.length){const desc=(used.length>1?'the other jobs are ':'the other job is ')+used.join(' and ');
+   if(MARKS.every(m=>used.includes(m)))return {ok:false,msg:`Part number already in workshop ${same.length} times (${used.join(', ')}) - finish one first.`};
+   if(!j.mark)return {ok:false,msg:`Part number already in workshop - choose Triangle or Square (${desc}).`};
+   if(used.includes(j.mark))return {ok:false,msg:`Part number already in workshop with the ${j.mark.toUpperCase()} mark - choose ${MARKS.filter(m=>!used.includes(m)).join(' or ')||'another mark'} (${desc}).`};}
+  Object.assign(j,{booked:t,pos:0,ticks:[]});DB.jobs.push(j);log(j.part,'rec','booked in'+(j.mark?' - marked '+markText(j):''),'',{action:'book',job:j});return {ok:true,msg:'Booked in '+j.part+(j.mark?' '+markText(j):'')+' · last four '+last4(j.part)}; }
  case 'scan': { if(!s||!route({}).concat('cut').includes(s.id))return {ok:false,msg:'Not a scanning station.'};
   const code=str(a.code); if(!code)return {ok:false,ignored:true}; // empty scan: no alert, no log
   // The lad types the last four off the BACK of the wheel in the photo. Messages never reveal the right characters.
@@ -113,56 +130,56 @@ function apply1(DB, a, t, ev){
   const d=due(DB,s.id,dev);
   if(!d)return {ok:false,ignored:true,msg:'Nothing is due here.'};
   // The phone sends which job (photo) it was showing; if the queue changed since, nothing happens.
-  if(a.due&&(a.due.part!==d.part||a.due.booked!==d.booked))return {ok:false,ignored:true,msg:'The next wheel has changed - check the new photo and try again.'};
-  if(last4(code)!==last4(d.part)){alertOffice(`Wrong last four at ${s.name}: typed ${last4(code)} (expected ${d.part}, ${d.cust})`);
+  if(a.due&&(a.due.key?a.due.key!==jobKey(d):(a.due.part!==d.part||a.due.booked!==d.booked)))return {ok:false,ignored:true,msg:'The next wheel has changed - check the new photo and try again.'};
+  if(last4(code)!==last4(d.part)){alertOffice(`Wrong last four at ${s.name}: typed ${last4(code)} (expected ${d.part}${mark(d)?' '+markText(d):''}, ${d.cust})`);
    return {ok:false,msg:'REJECTED: those last four do not match the wheel in the photo. Find the wheel in the photo and check the back again. Office notified.'};}
   if(s.id=='acid'&&wheels(DB,'prep')+ +d.n>ACID_MAX)return {ok:false,msg:`Acid full: max ${ACID_MAX} wheels.`};
   if(s.batch){if(sum(DB.jobs.filter(j=>j.inBatch))+ +d.n>OVEN_MAX)return {ok:false,msg:`Oven batch full: max ${OVEN_MAX} wheels.`};
-   d.inBatch=1;log(d.part,'oven','added to batch','',{action:'scan'});return {ok:true,msg:label(d)+' added to batch'};}
+   d.inBatch=1;log(d.part,'oven','added to batch','',{action:'scan',job:d});return {ok:true,msg:label(d)+' added to batch'};}
   const req=requirements(d,s.id);
-  log(d.part,s.id,'scanned','',{action:'scan'});
+  log(d.part,s.id,'scanned','',{action:'scan',job:d});
   if(!(req.checks||[]).length&&!(req.nums||[]).length&&!req.nameRequired){advance(d);return {ok:true,msg:label(d)+' booked in at wheel machine'};}
-  d.claim={st:s.id,dev};return {ok:true,open:d.part}; }
- case 'tick': { const j=DB.jobs.find(x=>x.part==a.part&&!x.done), who=str(a.who,60);
+  d.claim={st:s.id,dev};return {ok:true,open:jobKey(d)}; }
+ case 'tick': { const j=findJob(DB,{key:a.key,part:a.part},true), who=str(a.who,60);
   if(!s||!j||step(j)!=s.id||!j.claim||j.claim.dev!=dev)return {ok:false,msg:'That wheel is not open on this phone any more - scan again.'};
-  const req=requirements(j,s.id);if(req.blocked)return {ok:false,msg:req.blocked,open:j.part};
-  if(!(req.checks||[]).every((c,i)=>a.checks&&a.checks[i]))return {ok:false,msg:'Tick every item first.',open:j.part};
-  if(!who)return {ok:false,msg:'Enter your name.',open:j.part};
+  const req=requirements(j,s.id);if(req.blocked)return {ok:false,msg:req.blocked,open:jobKey(j)};
+  if(!(req.checks||[]).every((c,i)=>a.checks&&a.checks[i]))return {ok:false,msg:'Tick every item first.',open:jobKey(j)};
+  if(!who)return {ok:false,msg:'Enter your name.',open:jobKey(j)};
   const supplied = (req.nums||[]).map((n,i)=>String(a.nums?.[i]??'').trim());
   if(s.id==='fin'){
    const positive=v=>/^[+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(v)&&Number.isFinite(Number(v))&&Number(v)>0;
-   if(supplied.some(v=>v&&!positive(v)))return {ok:false,msg:'Every entered pressure and torque must be a finite number greater than zero.',open:j.part};
-   if(req.pressure&&!supplied[0]&&!supplied[1])return {ok:false,msg:'Enter Front PSI or Rear PSI (or both).',open:j.part};
-   if((req.nums||[]).includes('Torque')&&!supplied[req.nums.indexOf('Torque')])return {ok:false,msg:'Enter specified torque.',open:j.part};
-  }else if(supplied.some(v=>!v))return {ok:false,msg:'Fill in every box and your name.',open:j.part};
+   if(supplied.some(v=>v&&!positive(v)))return {ok:false,msg:'Every entered pressure and torque must be a finite number greater than zero.',open:jobKey(j)};
+   if(req.pressure&&!supplied[0]&&!supplied[1])return {ok:false,msg:'Enter Front PSI or Rear PSI (or both).',open:jobKey(j)};
+   if((req.nums||[]).includes('Torque')&&!supplied[req.nums.indexOf('Torque')])return {ok:false,msg:'Enter specified torque.',open:jobKey(j)};
+  }else if(supplied.some(v=>!v))return {ok:false,msg:'Fill in every box and your name.',open:jobKey(j)};
   const numberValue=(n,i)=>s.id==='fin'?String(Number(supplied[i])):str(a.nums[i],20);
   (req.checks||[]).forEach(c=>j.ticks.push({st:s.id,item:c,name:who,t,dev}));(req.nums||[]).forEach((n,i)=>{if(s.id==='fin'&&!supplied[i])return;j.ticks.push({st:s.id,item:n,value:numberValue(n,i),name:who,t,dev});});
-  log(j.part,s.id,'checklist done',who,{action:'done',items:(req.checks||[]).join('; '),nums:(req.nums||[]).map((n,i)=>s.id==='fin'&&!supplied[i]?'':n+'='+numberValue(n,i)).filter(Boolean).join('; ')});advance(j);return {ok:true,msg:label(j)+' done'}; }
+  log(j.part,s.id,'checklist done',who,{action:'done',job:j,items:(req.checks||[]).join('; '),nums:(req.nums||[]).map((n,i)=>s.id==='fin'&&!supplied[i]?'':n+'='+numberValue(n,i)).filter(Boolean).join('; ')});advance(j);return {ok:true,msg:label(j)+' done'}; }
  case 'batch': { const b=DB.jobs.filter(j=>j.inBatch);if(!b.length)return {ok:false,msg:'Batch is empty.'};
-  b.forEach(j=>{j.inBatch=0;j.ticks.push({st:'oven',item:'batch time',value:t});log(j.part,'oven','batch started '+t,'',{action:'batch'});advance(j);});return {ok:true,msg:'Batch started'}; }
- case 'hold': { const j=DB.jobs.find(x=>x.part==a.part&&!x.done);if(!j)return {ok:false,msg:'No such job.'};
-  j.hold=!!a.hold;j.holds=(j.holds||[]).concat({t,hold:j.hold});log(j.part,'office',j.hold?'HOLD':'released','',{action:j.hold?'hold':'release'});return {ok:true}; }
+  b.forEach(j=>{j.inBatch=0;j.ticks.push({st:'oven',item:'batch time',value:t});log(j.part,'oven','batch started '+t,'',{action:'batch',job:j});advance(j);});return {ok:true,msg:'Batch started'}; }
+ case 'hold': { const j=findJob(DB,{key:a.key,part:a.part},true);if(!j)return {ok:false,msg:'No such job.'};
+  j.hold=!!a.hold;j.holds=(j.holds||[]).concat({t,hold:j.hold});log(j.part,'office',j.hold?'HOLD':'released','',{action:j.hold?'hold':'release',job:j});return {ok:true}; }
  case 'rank': {
   const clear=a.priorityNumber===null||a.priorityNumber==='';
   if(!clear&&(!Number.isSafeInteger(a.priorityNumber)||a.priorityNumber<=0))return {ok:false,code:400,msg:'Priority number must be a positive whole number, or blank to clear.'};
-  const j=DB.jobs.find(x=>x.part==str(a.part)&&x.booked==str(a.booked)&&!x.done);
+  const j=findJob(DB,{key:a.key,part:str(a.part),booked:str(a.booked)},true);
   if(!j)return {ok:false,code:404,msg:'No such open job.'};
   if(clear)delete j.priorityNumber;else j.priorityNumber=a.priorityNumber;
-  log(j.part,'office',clear?'Priority number cleared':'Priority number: '+j.priorityNumber,'',{action:'priority-number'});return {ok:true}; }
+  log(j.part,'office',clear?'Priority number cleared':'Priority number: '+j.priorityNumber,'',{action:'priority-number',job:j});return {ok:true}; }
  case 'priority': {
   if(typeof a.rush!='boolean')return {ok:false,code:400,msg:'Choose Rush or Normal.'};
-  const j=DB.jobs.find(x=>x.part==str(a.part)&&x.booked==str(a.booked)&&!x.done);
+  const j=findJob(DB,{key:a.key,part:str(a.part),booked:str(a.booked)},true);
   if(!j)return {ok:false,code:404,msg:'No such open job.'};
   if((j.rush===true)===a.rush)return {ok:true,ignored:true};
-  j.rush=a.rush;log(j.part,'office',a.rush?'Priority: RUSH':'Priority: NORMAL','',{action:'priority'});
+  j.rush=a.rush;log(j.part,'office',a.rush?'Priority: RUSH':'Priority: NORMAL','',{action:'priority',job:j});
   return {ok:true,msg:a.rush?'Job set to Rush':'Job returned to Normal'}; }
  case 'delete': { // office only: remove one job by part + booked time; log/events kept, other jobs untouched
-  const k=DB.jobs.findIndex(x=>x.part==str(a.part)&&x.booked==str(a.booked));if(k<0)return {ok:false,code:404,msg:'No such job (already deleted?).'};
-  const j=DB.jobs[k];log(j.part,'office',`DELETED job ${j.job} (${j.cust}) - ${where(j).text}${j.inBatch?', removed from oven batch':''}`,'',{action:'delete',job:j});
+  const k=DB.jobs.indexOf(findJob(DB,{key:a.key,part:str(a.part),booked:str(a.booked)},false));if(k<0)return {ok:false,code:404,msg:'No such job (already deleted?).'};
+  const j=DB.jobs[k];log(j.part,'office',`DELETED job ${j.job} (${j.cust}${mark(j)?', '+markText(j):''}) - ${where(j).text}${j.inBatch?', removed from oven batch':''}`,'',{action:'delete',job:j});
   DB.jobs.splice(k,1);return {ok:true,msg:'Deleted '+j.part}; }
  }
  return {ok:false,msg:'Unknown action'};
 }
-const TWS={where,stationName,jobKey,SCHEMA,PHOTO_MAX,last4,photoOk,photoId,colour,COLOURS,queue,label,ACID_MAX,OVEN_MAX,S,route,step,wheelSize,sum,wheels,due,compare,jobHasTyre,requirements,apply,empty:()=>({jobs:[],log:[],alerts:[]})};
+const TWS={MARKS,MARK_SYM,mark,markText,markCheck,findJob,where,stationName,jobKey,SCHEMA,PHOTO_MAX,last4,photoOk,photoId,colour,COLOURS,queue,label,ACID_MAX,OVEN_MAX,S,route,step,wheelSize,sum,wheels,due,compare,jobHasTyre,requirements,apply,empty:()=>({jobs:[],log:[],alerts:[]})};
 if(typeof globalThis!='undefined')globalThis.TWS=TWS;
 })();

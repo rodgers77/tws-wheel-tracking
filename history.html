@@ -7,12 +7,13 @@ form{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px;background:#222}form 
 main{padding:10px 16px}.dim,small{color:#aaa}.row{display:flex;gap:12px;align-items:center;background:#222;border-radius:10px;padding:10px;margin:8px 0;cursor:pointer;border:0;color:#fff;width:100%;text-align:left;font-size:17px}
 .thumb{width:84px;height:84px;object-fit:cover;border-radius:8px;background:#000;flex:none}.nothumb{width:84px;height:84px;flex:none;display:flex;align-items:center;justify-content:center;border:2px dashed #777;border-radius:8px;color:#bbb;font-size:13px}
 .big{width:100%;max-width:520px;height:auto;max-height:60vh;object-fit:contain}.colour{display:inline-block;background:#ffd400;color:#000;font-weight:900;border-radius:6px;padding:2px 10px}
+.mk{display:inline-block;font-weight:900;border-radius:6px;padding:2px 10px}.mk.Triangle{background:#ffd400;color:#000}.mk.Square{background:#1e90ff;color:#fff}
 .status{font-weight:800;padding:2px 8px;border-radius:6px;background:#0a5}.status.Deleted{background:#7a0000}.status.In{background:#555}
 .card{background:#222;border-radius:12px;padding:14px;margin:10px 0;overflow-wrap:anywhere}.card ul{padding-left:22px}.card li{padding:3px 0}
 #err{background:#b00;padding:8px 16px;display:none;font-weight:700}button.back,#more{font-size:18px;padding:10px 14px;border:0;border-radius:8px;background:#444;color:#fff}
 </style></head><body>
 <header><b>TWS Job History</b><a href="office.html">Back to live board</a></header>
-<form id="f"><input id="q" placeholder="Search anything: job no, part, last 4, customer, reg, colour, name..." aria-label="Search"><label>From <input type="date" id="from"></label><label>To <input type="date" id="to"></label>
+<form id="f"><input id="q" placeholder="Search anything: job no, part, last 4, customer, reg, colour, name, triangle/square..." aria-label="Search"><label>From <input type="date" id="from"></label><label>To <input type="date" id="to"></label>
 <select id="status" aria-label="Status"><option value="">All statuses</option><option>In progress</option><option>Finished</option><option>Deleted</option></select><button>Search</button></form>
 <div id="err"></div><main id="m"><p class="dim">Loading...</p></main>
 <script src="logic.js"></script>
@@ -36,15 +37,15 @@ async function search(append=false){err('');const p=new URLSearchParams({q:docum
  const f=document.getElementById('from').value,t=document.getElementById('to').value;if(f)p.set('from',dayStart(f));if(t){const d=new Date(t+'T00:00:00');d.setDate(d.getDate()+1);p.set('to',d.toISOString());}
  try{const d=await (await call('/jobs?'+p)).json();ROWS=append?ROWS.concat(d.rows):d.rows;OFFSET=ROWS.length;MORE=d.more;list();}catch(e){err(e.message);}}
 function list(){document.getElementById('m').innerHTML=(ROWS.map((r,i)=>`<button class="row" data-i="${i}">${photo(r.photo,'thumb')}<span><b>${esc(r.cust)}</b> · job ${esc(r.job||'-')} · <span class="status ${esc(r.status.split(' ')[0])}">${esc(r.status)}</span>${r.stage&&r.status==='In progress'?' · <b>'+esc(r.stage)+'</b>':''}<br>
- <span class="colour">${esc(r.colour||'Colour not set')}</span> · Part ${esc(r.part)} (last 4: ${esc(r.last4)}) · ${esc(r.make||'')} ${esc(r.reg||'')}<br><small>Booked ${esc(uk(r.booked))}${r.doneAt?' · Finished '+esc(uk(r.doneAt)):''}${r.deletedAt?' · Deleted '+esc(uk(r.deletedAt)):''}</small></span></button>`).join('')||'<p class="dim">No jobs found.</p>')
+ <span class="colour">${esc(r.colour||'Colour not set')}</span>${TWS.mark(r)?` <span class="mk ${TWS.mark(r)}">${esc(TWS.markText(r))}</span>`:''} · Part ${esc(r.part)} (last 4: ${esc(r.last4)}) · ${esc(r.make||'')} ${esc(r.reg||'')}<br><small>Booked ${esc(uk(r.booked))}${r.doneAt?' · Finished '+esc(uk(r.doneAt)):''}${r.deletedAt?' · Deleted '+esc(uk(r.deletedAt)):''}</small></span></button>`).join('')||'<p class="dim">No jobs found.</p>')
  +(MORE?'<button id="more">Load more</button>':'');
  document.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>open(ROWS[b.dataset.i].id));const m=document.getElementById('more');if(m)m.onclick=()=>search(true);}
 async function open(id){err('');try{const d=await (await call('/job/'+encodeURIComponent(id))).json();card(d);}catch(e){err(e.message);}}
 function card({rec,events}){const j=rec.job,ticks=j.ticks||[],hist=(rec.history||[]).concat(events||[]);
  const field=(k,v)=>`<li>${esc(k)}: <b>${esc(v===undefined||v===''?'-':v)}</b></li>`;
  document.getElementById('m').innerHTML=`<button class="back" id="back">&larr; Back to results</button><div class="card">${photo(j.photo,'big')}
- <h2>${esc(j.cust)} <span class="status ${esc(rec.status.split(' ')[0])}">${esc(rec.status)}</span>${rec.status==='In progress'?' <b>'+esc(TWS.where(j).text)+'</b>':''}</h2><div class="colour" style="font-size:22px">Colour: ${esc(rec.colour||'Colour not set')}</div>
- <ul>${field('Job number',j.job)}${field('Full part number',j.part)}${field('Last four',rec.last4)}${field('Finish',j.finish)}${field('Wheels',j.n)}${field('Wheel size',j.tyre?TWS.wheelSize(j.tyre):'')}
+ <h2>${esc(j.cust)} <span class="status ${esc(rec.status.split(' ')[0])}">${esc(rec.status)}</span>${rec.status==='In progress'?' <b>'+esc(TWS.where(j).text)+'</b>':''}</h2><div class="colour" style="font-size:22px">Colour: ${esc(rec.colour||'Colour not set')}</div>${TWS.mark(j)?` <span class="mk ${TWS.mark(j)}" style="font-size:22px">${esc(TWS.markText(j))}</span>`:''}
+ <ul>${field('Job number',j.job)}${field('Full part number',j.part)}${field('Last four',rec.last4)}${field('Mark',TWS.mark(j)?TWS.markText(j):'None')}${field('Finish',j.finish)}${field('Wheels',j.n)}${field('Wheel size',j.tyre?TWS.wheelSize(j.tyre):'')}
  ${field('Job type',j.jobType||'Car')}${field('Loose wheel tyre',j.hasTyre)}${field('Car make',j.make)}${field('Reg',j.reg)}${field('Car staying',j.staying)}${field('Tyre included',j.tyreinc)}${field('Centre caps',j.centrecaps)}${field('Inserts',j.inserts)}
  ${field('Rush',j.rush===true?'Yes':'No')}${field('Priority number',j.priorityNumber)}${field('Booked',uk(j.booked))}${field('Booked on device',j.dev)}${field('Finished',rec.doneAt?uk(rec.doneAt):'')}${rec.deletedAt?field('Deleted',uk(rec.deletedAt)):''}
  ${(j.holds||[]).map(h=>field(h.hold?'Put on hold':'Released',uk(h.t))).join('')}</ul></div>

@@ -17,3 +17,7 @@ Never copy .pin, .dev.vars, .env files or local database state into version cont
 Booking needs the full part number, finish colour and a photo of the FRONT of the wheel (phone camera, shrunk to ~800 px JPEG on the phone, advisory blur/dark check). Stations show the photo, customer, job number and colour, never the part number: the lad types the last four letters/digits (spaces and punctuation ignored, any case) read off the back of the wheel, checked against the next due job only. Finish adds a named "Inserts fitted" tick when Inserts = Yes at booking.
 
 Photos are stored in the D1 `photos` table (GET /photo/<job id>, X-PIN). Every job is kept permanently in the D1 `jobs` table (search with GET /jobs, full record GET /job/<id>; history.html). Finished jobs leave the live state 3 days after completion. /export.csv columns: time_utc, time_uk, part, last4, job_no, customer, colour, photo_link, station, action, checklist_items, numbers, staff, device, detail.
+
+## Triangle / Square marks (draft 2026-11-11)
+
+The same part number can be in the workshop up to three times: unmarked, Triangle and Square. A duplicate can only be booked with a mark no other open job of that part uses. Marked jobs show a big "This should be TRIANGLE/SQUARE" banner on station screens and need a "Confirm wheel is marked ..." tick at every checklist station (enforced by the Worker). Jobs are found by their permanent key (jobKey), not by part number, so duplicates never get each other's ticks, holds, priorities or deletes.

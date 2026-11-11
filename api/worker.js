@@ -3,7 +3,7 @@
 // Rules (strict order, acid 8, oven 6) live in ../app/logic.js and run HERE, not just on the phone.
 import '../logic.js';
 import { readPart } from './vision-read.js';
-const { apply, empty, SCHEMA, photoOk, last4, jobKey, where } = globalThis.TWS;
+const { apply, empty, SCHEMA, photoOk, last4, jobKey, where, mark } = globalThis.TWS;
 const EVENT_COLS = ['colour', 'photo', 'last4', 'job_id']; // added 2026-11-11; older rows keep blanks
 const KEEP_DONE_DAYS = 3;   // finished jobs leave the live state after this; their permanent record stays in the jobs table
 let READY = false;          // tables/migrations checked once per Worker instance
@@ -12,7 +12,7 @@ const words = (v, out = []) => { if (v && typeof v === 'object') for (const x of
 // One permanent row per job (never deleted). rec = whole job (booking fields, ticks with name/time/device, values, holds) + status.
 // Backfilled pre-release history goes in its own column (written once, never overwritten by later updates).
 function record(j, status, extra = {}, history = []) {
-  const rec = { id: jobKey(j), status, booked: j.booked, doneAt: j.done ? doneTime(j) : '', last4: last4(j.part), colour: j.colour || '', ...extra, job: j };
+  const rec = { id: jobKey(j), status, booked: j.booked, doneAt: j.done ? doneTime(j) : '', last4: last4(j.part), colour: j.colour || '', mark: mark(j), ...extra, job: j };
   return { id: rec.id, booked: j.booked || '', status, rec: JSON.stringify(rec), history: JSON.stringify(history), search: words([rec, history.map(h => h.name)]).join(' ').toLowerCase() };
 }
 const UPSERT = "INSERT INTO jobs (id, booked, status, updated, search, rec, history) SELECT ?, ?, ?, ?, ?, ?, '[]' WHERE COALESCE((SELECT v FROM state WHERE id=1), 0)=? " +
@@ -99,7 +99,7 @@ export default {
       const { results } = await env.DB.prepare("SELECT rec FROM jobs WHERE instr(search, ?) > 0 AND booked >= ? AND booked < ? AND (?='' OR status=?) ORDER BY booked DESC, id DESC LIMIT ? OFFSET ?")
         .bind(String(u.get('q') || '').trim().toLowerCase().slice(0, 80), u.get('from') || '', u.get('to') || '\uffff', u.get('status') || '', u.get('status') || '', lim + 1, off).all();
       const rows = results.map(r => { const x = JSON.parse(r.rec), j = x.job; return { id: x.id, status: x.status, booked: x.booked, doneAt: x.doneAt, deletedAt: x.deletedAt || '',
-        stage: x.status === 'In progress' ? where(j).text : '', part: j.part, last4: x.last4, job: j.job, cust: j.cust, reg: j.reg, make: j.make, colour: x.colour, n: j.n, finish: j.finish, photo: j.photo || '' }; });
+        stage: x.status === 'In progress' ? where(j).text : '', part: j.part, last4: x.last4, job: j.job, cust: j.cust, reg: j.reg, make: j.make, colour: x.colour, mark: mark(j), n: j.n, finish: j.finish, photo: j.photo || '' }; });
       return json({ rows: rows.slice(0, lim), more: rows.length > lim });
     }
     if (req.method === 'GET' && path.startsWith('/job/')) {

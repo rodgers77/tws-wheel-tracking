@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#e30613"><link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#e30613"><link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=2">
 <title>TWS Wheel Tracking (DRAFT)</title><style>
 body{margin:0;font-family:system-ui,Arial,sans-serif;background:#111;color:#fff;font-size:20px}
 header{background:#e30613;padding:12px 16px;font-weight:800;font-size:22px}
@@ -19,6 +19,9 @@ footer{color:#888;font-size:14px;text-align:center;padding:16px}
 .nophoto{display:flex;align-items:center;justify-content:center;height:120px;background:#333;border:2px dashed #888;border-radius:10px;color:#ccc;font-weight:700;margin:6px 0}
 .colour{display:inline-block;background:#ffd400;color:#000;font-weight:900;border-radius:8px;padding:2px 10px;margin:4px 0}.colour.hero{font-size:30px;padding:6px 14px}
 .queue{display:flex;gap:10px;align-items:center;border-top:1px solid #444;padding:8px 0;font-size:17px}.queue .photo,.queue .nophoto{width:72px;height:72px;min-width:72px;margin:0;font-size:11px;object-fit:cover}
+.mk{display:inline-block;font-weight:900;border-radius:8px;padding:2px 10px;margin:4px 0}.mk.Triangle{background:#ffd400;color:#000}.mk.Square{background:#1e90ff;color:#fff}
+.markban{font-size:34px;font-weight:900;text-align:center;border-radius:12px;padding:14px;margin:8px 0;border:4px solid #fff}.markban.Triangle{background:#ffd400;color:#000}.markban.Square{background:#1e90ff;color:#fff}.markban small{display:block;font-size:17px;font-weight:700}
+.choice.marks button{min-width:110px}
 .shot{background:#333;border-radius:10px;padding:10px;margin:6px 0}.shot button{margin-right:6px}
 </style></head><body>
 <header>TWS Wheel Tracking · <span id="sn"></span> <small>(DRAFT)</small></header><main id="m"></main>
@@ -51,6 +54,9 @@ function photoTag(j,cls='photo'){if(!j||!TWS.photoId(j.photo))return `<div class
  return `<img class="${cls}" data-photo="${id}" alt="Front of wheel" ${PHOTOS[id]&&PHOTOS[id]!=='loading'&&PHOTOS[id]!=='missing'?'src="'+PHOTOS[id]+'"':''}>`;}
 async function loadPhoto(id){try{PHOTOS[id]=API?URL.createObjectURL(await (await call('/photo/'+id,{raw:true})).blob()):(localStorage['twsphoto-'+id]||'missing');}catch(e){PHOTOS[id]='missing';delete PHOTOS[id];return;}
  document.querySelectorAll(`img[data-photo="${id}"]`).forEach(i=>{if(PHOTOS[id]!=='missing')i.src=PHOTOS[id];});}
+// Triangle / Square mark (same part number in twice): badge on cards, big banner at the top of the station screen.
+const markTag=j=>TWS.mark(j)?` <span class="mk ${TWS.mark(j)}">${esc(TWS.markText(j))}</span>`:'';
+const markBanner=(j,what)=>TWS.mark(j)?`<div class="markban ${TWS.mark(j)}" role="alert">${TWS.MARK_SYM[TWS.mark(j)]} This should be ${TWS.mark(j).toUpperCase()} ${TWS.MARK_SYM[TWS.mark(j)]}<small>${esc(what)}: same part number is in the workshop more than once - only take the wheel marked ${TWS.mark(j).toUpperCase()}.</small></div>`:'';
 const colourTag=(j,hero)=>`<span class="colour${hero?' hero':''}">Colour: ${esc(TWS.colour(j))}</span>`;
 async function pull(){if(!API)return;try{DB=(await call('/state')).db;setOnline(1);}catch(e){setOnline(0,e.message);}}
 let NET='';function setOnline(ok,why){NET=ok?'':'<p class="bad">Not connected: '+esc(why||'')+' - nothing is being saved. Check signal.</p>';const e=document.getElementById('net');if(e)e.innerHTML=NET;}
@@ -74,19 +80,21 @@ function draw(){const s=stn(),m=document.getElementById('m');document.getElement
  <select name="tyreinc"><option value="">Tyre included?</option><option>Yes</option><option>No</option></select>
  <fieldset class="choice"><legend>Centre caps</legend><input type="hidden" name="centrecaps" id="centrecaps" value=""><button type="button" data-choice-field="centrecaps" data-choice="Yes" aria-pressed="false">Yes</button><button type="button" data-choice-field="centrecaps" data-choice="No" aria-pressed="false">No</button></fieldset>
  <fieldset class="choice"><legend>Inserts</legend><input type="hidden" name="inserts" id="inserts" value=""><button type="button" data-choice-field="inserts" data-choice="Yes" aria-pressed="false">Yes</button><button type="button" data-choice-field="inserts" data-choice="No" aria-pressed="false">No</button></fieldset>
+ <fieldset class="choice marks"><legend>Mark <span class="dim">(only if this part number is already in the workshop)</span></legend><input type="hidden" name="mark" id="mark" value=""><button type="button" data-choice-field="mark" data-choice="" aria-pressed="true">None</button><button type="button" data-choice-field="mark" data-choice="Triangle" aria-pressed="false">&#9650; Triangle</button><button type="button" data-choice-field="mark" data-choice="Square" aria-pressed="false">&#9632; Square</button></fieldset>
  <button>Book in</button></form></div>`;}
  else{const q=TWS.queue(DB,s.id,dev),d=q[0],hero=['prep','oven','lac'].includes(s.id);
   // Never put the part number or its last four on a station screen: the lad must read them off the wheel.
   if(s.batch){const b=DB.jobs.filter(j=>j.inBatch);h+=`<div class="card"><b>Loading batch</b> (${wheels2(b)}/${OVEN_MAX} wheels)<br>${b.map(j=>esc(TWS.label(j))+' · '+esc(TWS.colour(j))).join('<br>')||'<span class="dim">empty</span>'}<br>${b.length?'<button id="go">Start batch (records one time)</button>':''}</div>`;}
+  const cur=CUR&&CUR.st==s.id&&CUR.key&&DB.jobs.find(j=>TWS.jobKey(j)===CUR.key&&!j.done&&step(j)==s.id);
+  h+=cur?markBanner(cur,'Checklist open'):d?markBanner(d,'Next due'):'';
   if(s.id=='acid')h+=`<p class="dim">In acid now: ${wheels('prep')}/${ACID_MAX} wheels</p>`;
-  h+=`<div class="card"><div class="dim">NEXT DUE - find this wheel</div>${d?`${CUR&&CUR.st==s.id&&CUR.part===d.part?'<div class="dim">Checklist open below, with its photo.</div>':photoTag(d)}<div style="font-size:26px;font-weight:800">${esc(TWS.label(d))}${d.rush===true?' <span class="ph">RUSH</span>':''}</div>${colourTag(d,hero)}<div class="dim">${d.n} wheels · ${esc(d.finish)}${d.tyre?' · Wheel size '+esc(TWS.wheelSize(d.tyre)):''}${s.id=='lac'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
+  h+=`<div class="card"><div class="dim">NEXT DUE - find this wheel</div>${d?`${cur&&TWS.jobKey(cur)===TWS.jobKey(d)?'<div class="dim">Checklist open below, with its photo.</div>':photoTag(d)}<div style="font-size:26px;font-weight:800">${esc(TWS.label(d))}${d.rush===true?' <span class="ph">RUSH</span>':''}</div>${markTag(d)}${colourTag(d,hero)}<div class="dim">${d.n} wheels · ${esc(d.finish)}${d.tyre?' · Wheel size '+esc(TWS.wheelSize(d.tyre)):''}${s.id=='lac'?` · <b style="color:#ffd400">${d.staying=='Yes'?'GOING ON THE CAR':'BACK ON A TYRE'}</b>`:''}</div>`:'<div class="dim">Nothing due</div>'}</div>
   <form id="sf" class="row"><input id="code" placeholder="Last 4 from BACK of wheel" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="8" aria-label="Last 4 characters of the part number, read off the back of the wheel"><button>Check</button></form>
   <p class="dim">Look at the photo, find that wheel, read the last 4 of the part number off the back and type them.</p>`;
-  if(q.length>1)h+=`<div class="card"><div class="dim">THEN (in book-in order)</div>${q.slice(1,7).map(j=>`<div class="queue">${photoTag(j,'photo')}<div>${esc(TWS.label(j))}${j.rush===true?' <span class="ph">RUSH</span>':''}<br>${colourTag(j)} <span class="dim">${j.n} wheels</span></div></div>`).join('')}</div>`;
-  const cur=CUR&&CUR.st==s.id&&DB.jobs.find(j=>j.part==CUR.part&&!j.done&&step(j)==s.id);
+  if(q.length>1)h+=`<div class="card"><div class="dim">THEN (in book-in order)</div>${q.slice(1,7).map(j=>`<div class="queue">${photoTag(j,'photo')}<div>${esc(TWS.label(j))}${j.rush===true?' <span class="ph">RUSH</span>':''}<br>${markTag(j)}${colourTag(j)} <span class="dim">${j.n} wheels</span></div></div>`).join('')}</div>`;
   const req=cur?TWS.requirements(cur,s.id):s;
   if(cur&&req.blocked)h+=`<p class="bad">${esc(req.blocked)}</p>`;
-  if(cur&&!s.batch&&!req.blocked){h+=`<form id="cf" class="card"><b>${esc(TWS.label(cur))} checklist</b>${photoTag(cur)}${colourTag(cur,hero)}${cur.tyre?'<div class="dim">Wheel size '+esc(TWS.wheelSize(cur.tyre))+'</div>':''}${(req.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(req.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" ${s.id!=='fin'||n==='Torque'?'required':''} inputmode="decimal" ${s.id==='fin'?'type="number" step="any" min="0"':''} aria-label="${n}">`).join('')}
+  if(cur&&!s.batch&&!req.blocked){h+=`<form id="cf" class="card"><b>${esc(TWS.label(cur))} checklist</b>${photoTag(cur)}${markTag(cur)}${colourTag(cur,hero)}${cur.tyre?'<div class="dim">Wheel size '+esc(TWS.wheelSize(cur.tyre))+'</div>':''}${(req.checks||[]).map((c,i)=>`<label class="t"><input type="checkbox" name="c${i}"> ${esc(c)}</label>`).join('')}${(req.nums||[]).map((n,i)=>`<input name="n${i}" placeholder="${n}" ${s.id!=='fin'||n==='Torque'?'required':''} inputmode="decimal" ${s.id==='fin'?'type="number" step="any" min="0"':''} aria-label="${n}">`).join('')}
   ${s.id==='fin'?'<p class="dim">'+(req.pressure?'Enter Front PSI or Rear PSI, or both. ':'')+((req.nums||[]).includes('Torque')?'Enter specified torque.':'Confirm completion with your name.')+'</p>':''}<input name="who" placeholder="Your name" required value="${esc(localStorage.who||'')}"><button>Done</button></form>`;}
  }
  m.innerHTML=h;bind();}
@@ -101,14 +109,15 @@ function bind(){const q=id=>document.getElementById(id),s=stn();
  document.querySelectorAll('[data-choice-field]').forEach(b=>b.onclick=()=>{q(b.dataset.choiceField).value=b.dataset.choice;document.querySelectorAll('[data-choice-field]').forEach(other=>{if(other.dataset.choiceField===b.dataset.choiceField)other.setAttribute('aria-pressed',String(other===b));});});
  q('rf')&&(q('rf').onsubmit=async e=>{e.preventDefault();if(!SHOT){q('shotq').innerHTML='<p class="bad">Take a photo of the FRONT of the wheel first.</p>';q('shotq').scrollIntoView();return;}
   const typed=Object.fromEntries(new FormData(e.target));const r=await act({type:'book',job:typed,photo:SHOT.dataUrl});if(r.ok)SHOT=null;show(r);
-  if(!r.ok&&q('rf'))for(const [k,v] of Object.entries(typed)){const el=q('rf').elements[k];if(el&&el.type!=='file')el.value=v;}});
+  if(!r.ok&&q('rf'))for(const [k,v] of Object.entries(typed)){const el=q('rf').elements[k];if(el&&el.type!=='file')el.value=v;}
+  if(!r.ok&&q('rf'))document.querySelectorAll('[data-choice-field]').forEach(b=>b.setAttribute('aria-pressed',String(q(b.dataset.choiceField).value===b.dataset.choice)));});
  q('shotfile')&&(q('shotfile').onchange=async()=>{const f=q('shotfile').files[0];q('shotfile').value='';if(!f)return;q('shotq').textContent='Checking photo...';
   try{SHOT={...await TWSPhoto.prepare(f,TWS.PHOTO_MAX),accepted:false};if(!TWS.photoOk(SHOT.dataUrl))throw new Error('photo too large');}catch(err){SHOT=null;q('shotq').innerHTML='<p class="bad">Could not use that photo ('+esc(err.message)+') - take it again.</p>';return;}
   q('shotview').innerHTML=`<img class="photo" src="${SHOT.dataUrl}" alt="Front of wheel">`;q('shotq').innerHTML=shotWarning();q('shotbtn').firstChild.textContent='\u{1F4F7} Retake photo';bindShot();});
  bindShot();
- q('sf')&&(q('sf').onsubmit=async e=>{e.preventDefault();if(!q('code').value.trim())return;const d=due(s.id);const r=await act({type:'scan',st:s.id,code:q('code').value.trim(),due:d?{part:d.part,booked:d.booked}:null});if(r.open)setCur({st:s.id,part:r.open});show(r);});
- q('cf')&&(q('cf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim(),req=TWS.requirements(DB.jobs.find(j=>j.part===CUR.part),s.id);localStorage.who=who;
-  const r=await act({type:'tick',st:s.id,part:CUR.part,who,checks:(req.checks||[]).map((c,i)=>!!f.get('c'+i)),nums:(req.nums||[]).map((n,i)=>f.get('n'+i))});
+ q('sf')&&(q('sf').onsubmit=async e=>{e.preventDefault();if(!q('code').value.trim())return;const d=due(s.id);const r=await act({type:'scan',st:s.id,code:q('code').value.trim(),due:d?{part:d.part,booked:d.booked,key:TWS.jobKey(d)}:null});if(r.open)setCur({st:s.id,key:r.open});show(r);});
+ q('cf')&&(q('cf').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),who=f.get('who').trim(),job=DB.jobs.find(j=>TWS.jobKey(j)===CUR.key);if(!job){setCur(null);show({ok:false,msg:'That wheel is not open on this phone any more - scan again.'});return;}const req=TWS.requirements(job,s.id);localStorage.who=who;
+  const r=await act({type:'tick',st:s.id,key:CUR.key,part:job.part,who,checks:(req.checks||[]).map((c,i)=>!!f.get('c'+i)),nums:(req.nums||[]).map((n,i)=>f.get('n'+i))});
   if(r.ok||!r.open)setCur(null);show(r);});
  document.querySelectorAll('[data-cam]').forEach(f=>f.onchange=async()=>{const file=f.files[0];f.value='';if(!file)return;const st=t=>q('camst')&&(q('camst').textContent=t);
   try{if(!window.readPartFromPhoto)throw new Error('camera reader not loaded yet');const r=await readPartFromPhoto(file,st);const box=q(f.dataset.cam);
