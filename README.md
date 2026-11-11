@@ -11,3 +11,9 @@ Camera reading uses Workers AI first, then barcode and on-phone OCR. Results onl
 Worker source and AI/D1 bindings are in api/. Deploy with `cd api && npm ci && npx wrangler deploy`. Publish the static root through GitHub Pages together with the Worker. GET /export.csv requires X-PIN and exports the events table from this release onward; earlier audit entries remain in the state log.
 
 Never copy .pin, .dev.vars, .env files or local database state into version control. Local workflow tests must use isolated local D1, never production test jobs.
+
+## Last four + front photo (draft 2026-11-11)
+
+Booking needs the full part number, finish colour and a photo of the FRONT of the wheel (phone camera, shrunk to ~800 px JPEG on the phone, advisory blur/dark check). Stations show the photo, customer, job number and colour, never the part number: the lad types the last four letters/digits (spaces and punctuation ignored, any case) read off the back of the wheel, checked against the next due job only. Finish adds a named "Inserts fitted" tick when Inserts = Yes at booking.
+
+Photos are stored in the D1 `photos` table (GET /photo/<job id>, X-PIN). Every job is kept permanently in the D1 `jobs` table (search with GET /jobs, full record GET /job/<id>; history.html). Finished jobs leave the live state 3 days after completion. /export.csv columns: time_utc, time_uk, part, last4, job_no, customer, colour, photo_link, station, action, checklist_items, numbers, staff, device, detail.
