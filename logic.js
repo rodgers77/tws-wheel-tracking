@@ -2,7 +2,7 @@
 // so the strict order and the acid 8 / oven 6 limits are enforced the same way in both places.
 (function(){
 const ACID_MAX = 8, OVEN_MAX = 6;
-const SCHEMA='tws-last4-photo-20261111-2';
+const SCHEMA='tws-last4-photo-20261111-3';
 // Photos: phone sends one downscaled JPEG data URL with the booking; the Worker stores it in its own D1 table
 // (never inside the polled state). Limit is on the base64 data URL length (~330 KB of JPEG).
 const PHOTO_MAX = 450000, PHOTO_MIN = 200;
@@ -52,7 +52,7 @@ const st = id => S.find(s=>s.id==id);
 const jobHasTyre = j => j.jobType!=='Loose wheel'||j.hasTyre==='Yes';
 const requirements = (j,id) => {
  const base=st(id)||{};
- if(id==='wm')return {...base,nameRequired:true,checks:[...(base.checks||[]),...(jobHasTyre(j)?['Tyres removed','Valve removed','Weights removed','Wheel checked for buckles and cracks','Inserts removed','TPMS, centre cap and inserts stored in tyre']:[])]};
+ if(id==='wm')return {...base,nameRequired:true,checks:[...(base.checks||[]),...(jobHasTyre(j)?['Tyres removed']:[]),'Valve removed','Weights removed','Wheel checked for buckles and cracks',...(j.inserts!=='No'?['Inserts removed']:[]),...(jobHasTyre(j)?['TPMS, centre cap and inserts stored in tyre']:[])]}; // every job; hide ticks that don't apply (Ian, 11 Nov)
  if(id!='fin')return base;
  const fin=finishReq(j,base);if(fin.blocked)return fin;
  // Booking answers add named Finish ticks; a missing/legacy answer counts as No (tick not shown, not required).
